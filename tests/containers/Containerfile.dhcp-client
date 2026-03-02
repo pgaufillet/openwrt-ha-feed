@@ -1,0 +1,46 @@
+# Containerfile.dhcp-client - Lightweight DHCP client for testing lease sync
+#
+# Build with:
+#   podman build -t ha-dhcp-client -f Containerfile.dhcp-client .
+#
+# This container acts as a DHCP client to test lease synchronization
+# between HA cluster nodes.
+
+FROM alpine:latest
+
+# Install DHCP client and network tools
+# Note: dhclient is no longer available in Alpine, use dhcpcd instead
+RUN apk add --no-cache \
+    dhcpcd \
+    busybox-extras \
+    iproute2 \
+    iputils \
+    curl \
+    bind-tools
+
+# Create entrypoint script
+COPY --chmod=755 <<'EOF' /entrypoint.sh
+#!/bin/sh
+# DHCP client entrypoint
+
+# Default: just stay running, let tests control DHCP
+if [ "$1" = "dhcp" ]; then
+    # Request DHCP lease on eth0
+    echo "Requesting DHCP lease..."
+    dhcpcd -d eth0
+    exec tail -f /dev/null
+elif [ "$1" = "static" ]; then
+    # Use static IP from environment
+    if [ -n "$STATIC_IP" ]; then
+        ip addr add "$STATIC_IP" dev eth0 2>/dev/null || true
+        ip link set eth0 up
+    fi
+    exec tail -f /dev/null
+else
+    # Default: idle, ready for test commands
+    exec tail -f /dev/null
+fi
+EOF
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["idle"]

@@ -1,0 +1,18 @@
+# Node.js dependencies (install via npm install)
+node_modules/
+
+# Built packages (download or build locally)
+packages/*.ipk
+
+# OpenWrt rootfs images
+images/*.tar.gz
+
+# Runtime data
+data/
+
+# Test logs
+logs/
+
+# Build artifacts
+*.log
+.build-*/

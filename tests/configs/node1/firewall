@@ -1,0 +1,16 @@
+# Firewall configuration for HA Cluster Test Node 1
+# Both lan and backend interfaces are in the lan zone (trusted internal networks)
+
+config defaults
+	option syn_flood '1'
+	option input 'REJECT'
+	option output 'ACCEPT'
+	option forward 'REJECT'
+
+config zone 'lan'
+	option name 'lan'
+	list network 'lan'
+	list network 'backend'
+	option input 'ACCEPT'
+	option output 'ACCEPT'
+	option forward 'ACCEPT'

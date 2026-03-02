@@ -1,0 +1,72 @@
+# Containerfile.node - Full OpenWrt rootfs with HA packages for cluster testing
+#
+# Build with:
+#   podman build -t ha-cluster-node -f Containerfile.node ../..
+#
+# Requires in parent context:
+#   - images/openwrt-x86-64-generic-rootfs.tar.gz
+#   - packages/*.ipk (dnsmasq-ha, lease-sync, owsync, ha-cluster, luci-app-ha-cluster)
+
+FROM scratch
+ADD images/openwrt-x86-64-generic-rootfs.tar.gz /
+
+# Create required directories
+RUN mkdir -p /var/lock /var/run /tmp/packages
+
+# Copy HA packages
+COPY packages/*.ipk /tmp/packages/
+
+# Install HA cluster packages
+# 1. Remove conflicting dnsmasq-full (force-depends to ignore deps temporarily)
+# 2. Install keepalived from OpenWrt feeds (already in rootfs)
+# 3. Install our custom HA packages
+#
+# IPKG_INSTROOT=/ tells postinst scripts we're installing to a rootfs,
+# not a running system, so they skip ubus/service operations.
+# We also create directories that dnsmasq postinst expects.
+RUN mkdir -p /tmp/resolv.conf.d && \
+    touch /tmp/resolv.conf.d/resolv.conf.auto && \
+    opkg update 2>/dev/null || true && \
+    opkg remove --force-depends dnsmasq-full dnsmasq 2>/dev/null || true && \
+    IPKG_INSTROOT=/ opkg install keepalived 2>/dev/null || true && \
+    IPKG_INSTROOT=/ opkg install --force-depends /tmp/packages/*.ipk && \
+    rm -rf /tmp/packages
+
+# Install network testing tools for T09/T10 tests
+# - tcpdump: packet capture for T10 encryption validation
+# - nftables: native fw4 firewall for T09 network partition simulation
+RUN opkg update 2>/dev/null || true && \
+    opkg install tcpdump nftables 2>/dev/null || true
+
+# Disable DNSSEC (not needed for testing, causes startup delays)
+RUN if [ -f /etc/config/dhcp ]; then \
+        sed -i "s/option dnssec '1'/option dnssec '0'/" /etc/config/dhcp 2>/dev/null || true; \
+    fi
+
+# Disable procd jail for dnsmasq (containers don't support seccomp/capabilities)
+RUN if [ -f /etc/init.d/dnsmasq ]; then \
+        sed -i 's/procd_add_jail/# procd_add_jail/g' /etc/init.d/dnsmasq; \
+    fi
+
+# Enable essential services
+RUN [ -f /etc/init.d/ubus ] && /etc/init.d/ubus enable || true && \
+    [ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd enable || true && \
+    [ -f /etc/init.d/network ] && /etc/init.d/network enable || true && \
+    [ -f /etc/init.d/dnsmasq ] && /etc/init.d/dnsmasq enable || true
+
+# Copy entrypoint script
+COPY containers/scripts/entrypoint.sh /entrypoint.sh
+COPY containers/scripts/wait-for-services.sh /usr/local/bin/wait-for-services.sh
+RUN chmod +x /entrypoint.sh /usr/local/bin/wait-for-services.sh
+
+# Expose ports:
+# - 53: DNS
+# - 67: DHCP
+# - 80: LuCI HTTP
+# - 112: VRRP protocol (IP protocol, not port)
+# - 4321: owsync
+# - 5378: lease-sync
+EXPOSE 53/udp 53/tcp 67/udp 80/tcp 4321/tcp 5378/udp
+
+# Run OpenWrt init system
+CMD ["/entrypoint.sh"]

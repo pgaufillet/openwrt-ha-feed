@@ -1,0 +1,70 @@
+# docker-compose.3node.yml - 3-node HA cluster overlay
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.3node.yml up -d
+#
+# Adds a third node (ha-node3) with lowest priority for multi-node failover testing.
+
+services:
+  # Node 3 - Tertiary (lowest priority)
+  ha-node3:
+    image: ha-cluster-node:latest
+    container_name: ha-node3
+    hostname: ha-node3
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    networks:
+      ha-backend:
+        ipv4_address: 172.30.0.12
+        ipv6_address: fd00:172:30::12
+      ha-client:
+        ipv4_address: 192.168.50.12
+        ipv6_address: fd00:192:168:50::12
+    volumes:
+      - ../configs/node3:/mnt/config:ro
+      - ../configs/shared:/mnt/shared:ro
+      - ../data/node3:/var/lib/ha-cluster
+      - ../logs/node3:/var/log
+    environment:
+      - NODE_NAME=ha-node3
+      - NODE_PRIORITY=50
+      - PEER_IP=172.30.0.10
+      - PEER_IP_2=172.30.0.11
+      - PEER_IP6=fd00:172:30::10
+      - VIP_ADDRESS=192.168.50.254
+      - VIP_NETMASK=255.255.255.0
+      - VIP6_ADDRESS=fd00:192:168:50::254
+      - VIP6_PREFIX=64
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.ip_nonlocal_bind=1
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.ip_nonlocal_bind=1
+
+  # Update node1 and node2 to know about node3
+  ha-node1:
+    environment:
+      - NODE_NAME=ha-node1
+      - NODE_PRIORITY=200
+      - PEER_IP=172.30.0.11
+      - PEER_IP_2=172.30.0.12
+      - PEER_IP6=fd00:172:30::11
+      - VIP_ADDRESS=192.168.50.254
+      - VIP_NETMASK=255.255.255.0
+      - VIP6_ADDRESS=fd00:192:168:50::254
+      - VIP6_PREFIX=64
+
+  ha-node2:
+    environment:
+      - NODE_NAME=ha-node2
+      - NODE_PRIORITY=100
+      - PEER_IP=172.30.0.10
+      - PEER_IP_2=172.30.0.12
+      - PEER_IP6=fd00:172:30::10
+      - VIP_ADDRESS=192.168.50.254
+      - VIP_NETMASK=255.255.255.0
+      - VIP6_ADDRESS=fd00:192:168:50::254
+      - VIP6_PREFIX=64

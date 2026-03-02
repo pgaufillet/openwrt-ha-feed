@@ -1,0 +1,26 @@
+# Network configuration for Node 3
+# UCI format
+#
+# Note: entrypoint.sh renames physical interfaces (eth0/eth1) to logical
+# names (backend/lan) based on subnet detection. This config uses the
+# logical names so it works correctly after the rename.
+
+config interface 'loopback'
+    option device 'lo'
+    option proto 'static'
+    option ipaddr '127.0.0.1'
+    option netmask '255.0.0.0'
+
+config interface 'backend'
+    option device 'backend'
+    option proto 'static'
+    option ipaddr '172.30.0.12'
+    option netmask '255.255.255.0'
+    list ip6addr 'fd00:172:30::12/64'
+
+config interface 'lan'
+    option device 'lan'
+    option proto 'static'
+    option ipaddr '192.168.50.12'
+    option netmask '255.255.255.0'
+    list ip6addr 'fd00:192:168:50::12/64'

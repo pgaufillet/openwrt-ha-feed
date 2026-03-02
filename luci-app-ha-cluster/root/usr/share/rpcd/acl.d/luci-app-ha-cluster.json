@@ -1,0 +1,19 @@
+{
+	"luci-app-ha-cluster": {
+		"description": "Grant access to HA Cluster configuration",
+		"read": {
+			"ubus": {
+				"ha-cluster": [ "status", "generate_key", "get_source_for_peer" ],
+				"keepalived": [ "dump" ],
+				"service": [ "list" ]
+			},
+			"uci": [ "ha-cluster", "keepalived", "owsync", "lease-sync", "dhcp", "network" ]
+		},
+		"write": {
+			"ubus": {
+				"ha-cluster": [ "apply" ]
+			},
+			"uci": [ "ha-cluster" ]
+		}
+	}
+}

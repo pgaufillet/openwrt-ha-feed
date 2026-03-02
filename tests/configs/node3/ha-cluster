@@ -1,0 +1,40 @@
+# HA Cluster configuration for Node 3 (Tertiary)
+# This is a UCI config template - will be applied via uci set
+
+config config 'config'
+    option enabled '1'
+    option encryption_key '7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e'
+    option sync_method 'owsync'
+    option sync_interval '30'
+
+config vip 'lan'
+    option enabled '1'
+    option interface 'lan'
+    option address '192.168.50.254'
+    option netmask '255.255.255.0'
+    option vrid '51'
+    option priority '50'
+    option nopreempt '0'
+
+config peer 'peer1'
+    option name 'ha-node1'
+    option address '172.30.0.10'
+
+config peer 'peer2'
+    option name 'ha-node2'
+    option address '172.30.0.11'
+
+config service 'dhcp'
+    option enabled '1'
+    option sync_leases '1'
+    list config_files 'dhcp'
+
+config service 'firewall'
+    option enabled '0'
+    list config_files 'firewall'
+
+config exclude
+    list file 'network'
+    list file 'system'
+    list file 'owsync'
+    list file 'ha-cluster'

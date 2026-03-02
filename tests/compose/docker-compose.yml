@@ -1,0 +1,138 @@
+# docker-compose.yml - 2-node HA cluster test environment (dual-stack)
+#
+# Network topology:
+#   - ha-backend (172.30.0.0/24, fd00:172:30::/64): Inter-node communication (VRRP, owsync, lease-sync)
+#   - ha-client (192.168.50.0/24, fd00:192:168:50::/64): Client LAN with floating VIP
+#
+# Usage:
+#   docker compose up -d
+#   docker compose exec ha-node1 sh
+#   docker compose down
+
+services:
+  # Node 1 - Primary (higher priority)
+  ha-node1:
+    image: ha-cluster-node:latest
+    container_name: ha-node1
+    hostname: ha-node1
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    networks:
+      ha-backend:
+        ipv4_address: 172.30.0.10
+        ipv6_address: fd00:172:30::10
+      ha-client:
+        ipv4_address: 192.168.50.10
+        ipv6_address: fd00:192:168:50::10
+    volumes:
+      - ../configs/node1:/mnt/config:ro
+      - ../configs/shared:/mnt/shared:ro
+      - ../data/node1:/var/lib/ha-cluster
+      - ../logs/node1:/var/log
+    environment:
+      - NODE_NAME=ha-node1
+      - NODE_PRIORITY=200
+      - PEER_IP=172.30.0.11
+      - PEER_IP6=fd00:172:30::11
+      - VIP_ADDRESS=192.168.50.254
+      - VIP_NETMASK=255.255.255.0
+      - VIP6_ADDRESS=fd00:192:168:50::254
+      - VIP6_PREFIX=64
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.ip_nonlocal_bind=1
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.ip_nonlocal_bind=1
+
+  # Node 2 - Secondary (lower priority)
+  ha-node2:
+    image: ha-cluster-node:latest
+    container_name: ha-node2
+    hostname: ha-node2
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    networks:
+      ha-backend:
+        ipv4_address: 172.30.0.11
+        ipv6_address: fd00:172:30::11
+      ha-client:
+        ipv4_address: 192.168.50.11
+        ipv6_address: fd00:192:168:50::11
+    volumes:
+      - ../configs/node2:/mnt/config:ro
+      - ../configs/shared:/mnt/shared:ro
+      - ../data/node2:/var/lib/ha-cluster
+      - ../logs/node2:/var/log
+    environment:
+      - NODE_NAME=ha-node2
+      - NODE_PRIORITY=100
+      - PEER_IP=172.30.0.10
+      - PEER_IP6=fd00:172:30::10
+      - VIP_ADDRESS=192.168.50.254
+      - VIP_NETMASK=255.255.255.0
+      - VIP6_ADDRESS=fd00:192:168:50::254
+      - VIP6_PREFIX=64
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.ip_nonlocal_bind=1
+      - net.ipv6.conf.all.forwarding=1
+      - net.ipv6.ip_nonlocal_bind=1
+
+  # DHCP client 1 (for lease sync testing)
+  client1:
+    image: ha-dhcp-client:latest
+    container_name: ha-client1
+    hostname: client1
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      ha-client:
+        # No static IP - will use DHCP
+    depends_on:
+      - ha-node1
+      - ha-node2
+
+  # DHCP client 2 (for lease sync testing)
+  client2:
+    image: ha-dhcp-client:latest
+    container_name: ha-client2
+    hostname: client2
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      ha-client:
+        # No static IP - will use DHCP
+    depends_on:
+      - ha-node1
+      - ha-node2
+
+networks:
+  # Backend network for HA cluster communication
+  ha-backend:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+          gateway: 172.30.0.1
+        - subnet: fd00:172:30::/64
+          gateway: fd00:172:30::1
+
+  # Client LAN where VIP floats
+  ha-client:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: 192.168.50.0/24
+          gateway: 192.168.50.1
+        - subnet: fd00:192:168:50::/64
+          gateway: fd00:192:168:50::1
