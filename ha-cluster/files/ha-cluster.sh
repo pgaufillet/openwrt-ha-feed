@@ -701,7 +701,7 @@ ha_validate_config() {
 
 ha_check_vrid_unique() {
 	local section="$1"
-	local enabled vrid
+	local enabled vrid interface vrid_key
 
 	config_get_bool enabled "$section" enabled 0
 	[ "$enabled" -eq 0 ] && return 0
@@ -709,12 +709,15 @@ ha_check_vrid_unique() {
 	config_get vrid "$section" vrid
 	[ -z "$vrid" ] && return 0
 
-	echo "$vrid_list" | grep -qw "$vrid" && {
-		ha_log_error "Duplicate VRID $vrid in section $section"
+	config_get interface "$section" interface
+	vrid_key="${interface}:${vrid}"
+
+	echo "$vrid_list" | grep -qw "$vrid_key" && {
+		ha_log_error "Duplicate VRID $vrid on interface $interface in section $section"
 		return 1
 	}
 
-	vrid_list="$vrid_list $vrid"
+	vrid_list="$vrid_list $vrid_key"
 }
 
 ha_count_peers() {

@@ -22,8 +22,8 @@ case "$1" in
 	call)
 		case "$2" in
 			generate_key)
-				# Generate secure 256-bit encryption key using OpenSSL
-				key=$(openssl rand -hex 32 2>/dev/null)
+				# Generate secure 256-bit encryption key
+				key=$(hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom 2>/dev/null)
 
 				if [ -z "$key" ] || [ ${#key} -ne 64 ]; then
 					json_init

@@ -61,7 +61,13 @@ fi
 # --- Step 1: Update package lists ---
 
 info "Updating package lists..."
-opkg update || die "opkg update failed — check network and feed configuration"
+# opkg update returns non-zero if ANY feed fails, even when others succeed.
+# We allow partial failure but verify the ha_feed specifically.
+opkg update 2>&1 | tee /tmp/opkg-update.log
+if ! grep -q 'ha_feed\|ha-feed' /var/opkg-lists/* 2>/dev/null && \
+   ! opkg list dnsmasq-ha 2>/dev/null | grep -q dnsmasq-ha; then
+	die "ha_feed update failed — check that the feed server is reachable"
+fi
 
 # --- Step 2: Check current dnsmasq status ---
 
@@ -172,6 +178,6 @@ fi
 info ""
 info "Installation complete. Configure ha-cluster with:"
 info "  uci set ha-cluster.config.enabled='1'"
-info "  uci set ha-cluster.config.encryption_key=\"\$(openssl rand -hex 32)\""
+info "  uci set ha-cluster.config.encryption_key=\"\$(hexdump -n 32 -v -e '1/1 \"%02x\"' /dev/urandom)\""
 info "  # Add peers, VIPs, etc. — see ha-cluster README"
 info "  uci commit ha-cluster"

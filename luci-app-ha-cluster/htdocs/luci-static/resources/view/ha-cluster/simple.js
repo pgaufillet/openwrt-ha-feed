@@ -269,20 +269,10 @@ return view.extend({
 		// Virtual IP Configuration
 		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
 			_('Configure VIPs for each interface.'));
-		s.anonymous = true;
+		s.anonymous = false;
 		s.addremove = true;
 		s.sortable = true;
-
-		o = s.option(form.Value, '_name', _('Name'));
-		o.cfgvalue = function(section_id) {
-			return section_id;
-		};
-		o.write = function(section_id, value) {
-			if (!value || value === section_id)
-				return;
-			uci.rename('ha-cluster', section_id, value);
-		};
-		o.modalonly = true;
+		s.addbtntitle = _('Add VIP...');
 
 		o = s.option(form.DummyValue, '_interface_display', _('Interface'));
 		o.textvalue = function(section_id) {
@@ -386,6 +376,27 @@ return view.extend({
 
 			if (addr6val && vrid === 255)
 				return _('VRID cannot be 255 when IPv6 is configured (IPv6 would use VRID 256, which is out of range)');
+
+			// Check for VRID uniqueness on the same interface
+			var iface_opt = this.map.lookupOption('interface', section_id);
+			var my_iface = iface_opt ? iface_opt[0].formvalue(section_id) : '';
+			var sections = uci.sections('ha-cluster', 'vip');
+			for (var i = 0; i < sections.length; i++) {
+				if (sections[i]['.name'] === section_id)
+					continue;
+				var other_iface = uci.get('ha-cluster', sections[i]['.name'], 'interface');
+				if (other_iface !== my_iface)
+					continue;
+				var other_vrid = parseInt(uci.get('ha-cluster', sections[i]['.name'], 'vrid'));
+				if (other_vrid === vrid)
+					return _('VRID %d is already used by VIP "%s" on the same interface').format(vrid, sections[i]['.name']);
+				// Also check IPv6 VRID+1 collisions on same interface
+				var other_addr6 = uci.get('ha-cluster', sections[i]['.name'], 'address6');
+				if (other_addr6 && other_vrid + 1 === vrid)
+					return _('VRID %d collides with IPv6 VRID (VRID+1) of VIP "%s"').format(vrid, sections[i]['.name']);
+				if (addr6val && vrid + 1 === other_vrid)
+					return _('IPv6 VRID %d (VRID+1) collides with VIP "%s"').format(vrid + 1, sections[i]['.name']);
+			}
 
 			return true;
 		};
