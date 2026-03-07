@@ -4,6 +4,50 @@ Meta-package that orchestrates keepalived (VRRP), owsync (config sync), and
 lease-sync (DHCP lease sync) to provide seamless failover between OpenWrt
 routers.
 
+## Installation
+
+### Automated (recommended)
+
+Copy the installation script to your router and run it:
+
+```sh
+scp scripts/install-ha-cluster.sh root@router:/tmp/
+ssh root@router sh /tmp/install-ha-cluster.sh
+```
+
+The script handles the dnsmasq-to-dnsmasq-ha swap safely by pre-installing
+dependencies and pre-downloading packages while DNS is still available.
+
+### Manual
+
+If you prefer to install manually, or if the script fails:
+
+```sh
+# 1. Update package lists
+opkg update
+
+# 2. Pre-install ALL dependencies from official feeds (while DNS works)
+opkg install libnettle kmod-ipt-ipset libnetfilter-conntrack nftables-json
+opkg install keepalived
+opkg install libopenssl3
+
+# 3. Download ALL ha_feed packages locally
+cd /tmp
+opkg download dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster
+
+# 4. Swap dnsmasq for dnsmasq-ha
+opkg remove dnsmasq          # or: opkg remove dnsmasq-full
+opkg install /tmp/dnsmasq-ha_*.ipk
+
+# 5. Install remaining packages from local files
+opkg install /tmp/owsync_*.ipk /tmp/lease-sync_*.ipk
+opkg install /tmp/ha-cluster_*.ipk /tmp/luci-app-ha-cluster_*.ipk
+```
+
+**Why so many steps?** dnsmasq-ha replaces stock dnsmasq, but opkg cannot
+auto-remove conflicting packages. Removing dnsmasq kills DNS resolution,
+so ALL dependencies and packages must be pre-downloaded before the swap.
+
 ## Dependencies
 
 - `keepalived` - VRRP failover
