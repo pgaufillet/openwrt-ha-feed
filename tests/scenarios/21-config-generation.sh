@@ -8,6 +8,9 @@
 #   - VRRP instance names match UCI section names (no VI_ prefix)
 #   - Unicast auto-derivation from peer config when vrrp_transport=unicast
 #   - sync_enabled=0 peers excluded from owsync/lease-sync but included in unicast
+#   - Instance lifecycle: new instance with VIP appears, empty instance skipped
+#   - Multiple instances on same interface both generated
+#   - Per-instance unicast override takes precedence over auto-derivation
 #   - owsync.conf is removed when sync_method != owsync
 #   - lease-sync.conf is removed when lease sync is disabled
 #
@@ -167,7 +170,7 @@ test_unicast_auto_derivation() {
 
     # Restore
     uci_set "$node" "ha-cluster.config.vrrp_transport" "multicast"
-    exec_node "$node" "uci delete ha-cluster.peer1.source_address" 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.peer1.source_address 2>/dev/null || true
     uci_commit "$node" "ha-cluster"
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
@@ -242,7 +245,7 @@ test_sync_enabled_filtering() {
     fi
 
     # Restore
-    exec_node "$node" "uci delete ha-cluster.peer1.sync_enabled" 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.peer1.sync_enabled 2>/dev/null || true
     uci_commit "$node" "ha-cluster"
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
@@ -283,8 +286,240 @@ test_sync_enabled_unicast_included() {
 
     # Restore
     uci_set "$node" "ha-cluster.config.vrrp_transport" "multicast"
-    exec_node "$node" "uci delete ha-cluster.peer1.sync_enabled" 2>/dev/null || true
-    exec_node "$node" "uci delete ha-cluster.peer1.source_address" 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.peer1.sync_enabled 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.peer1.source_address 2>/dev/null || true
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+}
+
+# ============================================
+# Test Cases - Instance Lifecycle
+# ============================================
+
+test_new_instance_appears_in_config() {
+    subheader "New Instance With VIP Appears In keepalived.conf"
+
+    local node="$NODE1"
+
+    # Create a second instance
+    uci_set "$node" "ha-cluster.guest_1" "vrrp_instance"
+    uci_set "$node" "ha-cluster.guest_1.vrid" "72"
+    uci_set "$node" "ha-cluster.guest_1.interface" "lan"
+    uci_set "$node" "ha-cluster.guest_1.priority" "100"
+    uci_set "$node" "ha-cluster.guest_1.nopreempt" "1"
+
+    # Add a VIP referencing this instance
+    uci_set "$node" "ha-cluster.vip_guest" "vip"
+    uci_set "$node" "ha-cluster.vip_guest.enabled" "1"
+    uci_set "$node" "ha-cluster.vip_guest.vrrp_instance" "guest_1"
+    uci_set "$node" "ha-cluster.vip_guest.interface" "lan"
+    uci_set "$node" "ha-cluster.vip_guest.address" "192.168.50.200"
+    uci_set "$node" "ha-cluster.vip_guest.netmask" "255.255.255.0"
+    uci_commit "$node" "ha-cluster"
+
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    local conf
+    conf=$(get_file_content "$node" "$KEEPALIVED_CONF")
+
+    if echo "$conf" | grep -q "vrrp_instance guest_1 {"; then
+        pass "New instance guest_1 appears in keepalived.conf"
+    else
+        fail "Instance guest_1 not found in keepalived.conf"
+        info "Instances found: $(echo "$conf" | grep 'vrrp_instance ')"
+        # Cleanup before returning
+        exec_node "$node" uci delete ha-cluster.vip_guest 2>/dev/null || true
+        exec_node "$node" uci delete ha-cluster.guest_1 2>/dev/null || true
+        uci_commit "$node" "ha-cluster"
+        stop_ha_cluster "$node" 2>/dev/null || true
+        wait_for_service_stopped "$node" "keepalived" 10
+        start_ha_cluster "$node" 2>/dev/null || true
+        wait_for_service "$node" "keepalived" 30
+        return 1
+    fi
+
+    if echo "$conf" | grep -q "virtual_router_id 72"; then
+        pass "Instance guest_1 has VRID 72"
+    else
+        fail "VRID 72 not found in keepalived.conf"
+    fi
+
+    # Cleanup
+    exec_node "$node" uci delete ha-cluster.vip_guest
+    exec_node "$node" uci delete ha-cluster.guest_1
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+}
+
+test_instance_without_vips_skipped() {
+    subheader "Instance With No VIPs Skipped In keepalived.conf"
+
+    local node="$NODE1"
+
+    # Create instance with no VIPs
+    uci_set "$node" "ha-cluster.empty_1" "vrrp_instance"
+    uci_set "$node" "ha-cluster.empty_1.vrid" "99"
+    uci_set "$node" "ha-cluster.empty_1.interface" "lan"
+    uci_set "$node" "ha-cluster.empty_1.priority" "100"
+    uci_set "$node" "ha-cluster.empty_1.nopreempt" "1"
+    uci_commit "$node" "ha-cluster"
+
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    local conf
+    conf=$(get_file_content "$node" "$KEEPALIVED_CONF")
+
+    if echo "$conf" | grep -q "vrrp_instance empty_1 {"; then
+        fail "Empty instance should not appear in keepalived.conf"
+        exec_node "$node" uci delete ha-cluster.empty_1 2>/dev/null || true
+        uci_commit "$node" "ha-cluster"
+        stop_ha_cluster "$node" 2>/dev/null || true
+        wait_for_service_stopped "$node" "keepalived" 10
+        start_ha_cluster "$node" 2>/dev/null || true
+        wait_for_service "$node" "keepalived" 30
+        return 1
+    else
+        pass "Instance with no VIPs is skipped"
+    fi
+
+    # Original 'main' instance should still be present
+    if echo "$conf" | grep -q "vrrp_instance main {"; then
+        pass "Original instance 'main' still present"
+    else
+        fail "Original instance 'main' missing"
+    fi
+
+    # Cleanup
+    exec_node "$node" uci delete ha-cluster.empty_1
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+}
+
+test_multiple_instances_same_interface() {
+    subheader "Multiple Instances On Same Interface Both Generated"
+
+    local node="$NODE1"
+
+    # Add second instance on lan (same interface as 'main')
+    uci_set "$node" "ha-cluster.lan_2" "vrrp_instance"
+    uci_set "$node" "ha-cluster.lan_2.vrid" "52"
+    uci_set "$node" "ha-cluster.lan_2.interface" "lan"
+    uci_set "$node" "ha-cluster.lan_2.priority" "150"
+    uci_set "$node" "ha-cluster.lan_2.nopreempt" "1"
+
+    # Add VIP for the second instance
+    uci_set "$node" "ha-cluster.vip_lan2" "vip"
+    uci_set "$node" "ha-cluster.vip_lan2.enabled" "1"
+    uci_set "$node" "ha-cluster.vip_lan2.vrrp_instance" "lan_2"
+    uci_set "$node" "ha-cluster.vip_lan2.interface" "lan"
+    uci_set "$node" "ha-cluster.vip_lan2.address" "192.168.50.200"
+    uci_set "$node" "ha-cluster.vip_lan2.netmask" "255.255.255.0"
+    uci_commit "$node" "ha-cluster"
+
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    local conf
+    conf=$(get_file_content "$node" "$KEEPALIVED_CONF")
+
+    # Both instances should exist
+    if echo "$conf" | grep -q "vrrp_instance main {"; then
+        pass "Original instance 'main' present"
+    else
+        fail "Instance 'main' missing"
+    fi
+
+    if echo "$conf" | grep -q "vrrp_instance lan_2 {"; then
+        pass "Second instance 'lan_2' present"
+    else
+        fail "Instance 'lan_2' not found"
+        info "Instances: $(echo "$conf" | grep 'vrrp_instance ')"
+    fi
+
+    # Verify different VRIDs
+    if echo "$conf" | grep -q "virtual_router_id 52"; then
+        pass "lan_2 has VRID 52"
+    else
+        fail "VRID 52 not found"
+    fi
+
+    # Cleanup
+    exec_node "$node" uci delete ha-cluster.vip_lan2
+    exec_node "$node" uci delete ha-cluster.lan_2
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+}
+
+test_per_instance_unicast_override() {
+    subheader "Per-Instance Unicast Override Takes Precedence"
+
+    local node="$NODE1"
+
+    # Set global unicast
+    uci_set "$node" "ha-cluster.config.vrrp_transport" "unicast"
+    uci_set "$node" "ha-cluster.peer1.source_address" "10.99.0.1"
+
+    # Set per-instance override on 'main'
+    uci_set "$node" "ha-cluster.main.unicast_src_ip" "10.88.0.1"
+    exec_node "$node" uci add_list ha-cluster.main.unicast_peer=10.88.0.2
+    uci_commit "$node" "ha-cluster"
+
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    local conf
+    conf=$(get_file_content "$node" "$KEEPALIVED_CONF")
+
+    # Should use explicit values, not auto-derived
+    if echo "$conf" | grep -q "unicast_src_ip 10.88.0.1"; then
+        pass "Per-instance unicast_src_ip override used (10.88.0.1)"
+    else
+        fail "Per-instance override not used"
+        info "Expected: unicast_src_ip 10.88.0.1"
+        info "Got: $(echo "$conf" | grep 'unicast_src_ip')"
+    fi
+
+    if echo "$conf" | grep -q "10.88.0.2"; then
+        pass "Per-instance unicast_peer override used (10.88.0.2)"
+    else
+        fail "Per-instance unicast_peer override not used"
+        info "Got: $(echo "$conf" | grep -A5 'unicast_peer')"
+    fi
+
+    # Auto-derived source (10.99.0.1) should NOT appear
+    if echo "$conf" | grep -q "unicast_src_ip 10.99.0.1"; then
+        fail "Auto-derived unicast_src_ip should be overridden"
+    else
+        pass "Auto-derived value correctly overridden"
+    fi
+
+    # Cleanup
+    exec_node "$node" uci delete ha-cluster.main.unicast_src_ip 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.main.unicast_peer 2>/dev/null || true
+    uci_set "$node" "ha-cluster.config.vrrp_transport" "multicast"
+    exec_node "$node" uci delete ha-cluster.peer1.source_address 2>/dev/null || true
     uci_commit "$node" "ha-cluster"
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
@@ -532,6 +767,12 @@ main() {
     # sync_enabled filtering tests
     test_sync_enabled_filtering || result=1
     test_sync_enabled_unicast_included || result=1
+
+    # Instance lifecycle tests
+    test_new_instance_appears_in_config || result=1
+    test_instance_without_vips_skipped || result=1
+    test_multiple_instances_same_interface || result=1
+    test_per_instance_unicast_override || result=1
 
     # Stale config cleanup tests (modify config, need cleanup)
     test_owsync_conf_removed_when_disabled || result=1
