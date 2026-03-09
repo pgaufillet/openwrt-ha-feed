@@ -6,7 +6,11 @@
 # all dependencies and pre-downloading all ha_feed packages while DNS is
 # still available, then performing the swap offline.
 #
-# Usage: sh install-ha-cluster.sh
+# Usage: sh install-ha-cluster.sh [--force-reinstall]
+#
+# Options:
+#   --force-reinstall  Reinstall all ha_feed packages even if already installed.
+#                      Useful after rebuilding packages with the same version.
 #
 # Requirements:
 #   - Root access on an OpenWrt router
@@ -45,6 +49,26 @@ die() {
 	exit 1
 }
 
+# --- Parse arguments ---
+
+FORCE_REINSTALL=""
+for arg in "$@"; do
+	case "$arg" in
+		--force-reinstall) FORCE_REINSTALL=1 ;;
+		-h|--help)
+			sed -n '2,/^$/s/^# \?//p' "$0"
+			exit 0
+			;;
+		*) die "Unknown option: $arg" ;;
+	esac
+done
+
+OPKG_INSTALL_FLAGS=""
+if [ -n "$FORCE_REINSTALL" ]; then
+	OPKG_INSTALL_FLAGS="--force-reinstall"
+	info "Force-reinstall mode enabled"
+fi
+
 # --- Pre-flight checks ---
 
 [ "$(id -u)" -eq 0 ] || die "This script must be run as root"
@@ -79,8 +103,12 @@ elif opkg list-installed | grep -q '^dnsmasq '; then
 fi
 
 if opkg list-installed | grep -q '^dnsmasq-ha '; then
-	info "dnsmasq-ha is already installed, skipping replacement"
-	SKIP_DNSMASQ_SWAP=1
+	if [ -n "$FORCE_REINSTALL" ]; then
+		info "dnsmasq-ha is already installed (will force-reinstall)"
+	else
+		info "dnsmasq-ha is already installed, skipping replacement"
+		SKIP_DNSMASQ_SWAP=1
+	fi
 fi
 
 # --- Step 3: Pre-install ALL dependencies from official feeds while DNS works ---
@@ -124,7 +152,7 @@ if [ -z "$SKIP_DNSMASQ_SWAP" ] && [ -n "$STOCK_DNSMASQ" ]; then
 	}
 
 	info "Installing dnsmasq-ha from local package..."
-	opkg install /tmp/dnsmasq-ha_*.ipk || {
+	opkg install $OPKG_INSTALL_FLAGS /tmp/dnsmasq-ha_*.ipk || {
 		error "dnsmasq-ha installation failed! Attempting to restore $STOCK_DNSMASQ..."
 		# Try restoring from /rom overlay first, then from network
 		if [ -f /rom/usr/sbin/dnsmasq ]; then
@@ -136,20 +164,20 @@ if [ -z "$SKIP_DNSMASQ_SWAP" ] && [ -n "$STOCK_DNSMASQ" ]; then
 	info "dnsmasq-ha installed successfully"
 elif [ -z "$SKIP_DNSMASQ_SWAP" ] && [ -z "$STOCK_DNSMASQ" ]; then
 	info "No stock dnsmasq detected — installing dnsmasq-ha"
-	opkg install /tmp/dnsmasq-ha_*.ipk || die "Failed to install dnsmasq-ha"
+	opkg install $OPKG_INSTALL_FLAGS /tmp/dnsmasq-ha_*.ipk || die "Failed to install dnsmasq-ha"
 fi
 
 # --- Step 6: Install remaining packages from local .ipk files ---
 # All deps are already satisfied, no network needed.
 
 info "Installing ha-cluster packages..."
-opkg install /tmp/owsync_*.ipk || die "Failed to install owsync"
-opkg install /tmp/lease-sync_*.ipk || die "Failed to install lease-sync"
-opkg install /tmp/ha-cluster_*.ipk || die "Failed to install ha-cluster"
+opkg install $OPKG_INSTALL_FLAGS /tmp/owsync_*.ipk || die "Failed to install owsync"
+opkg install $OPKG_INSTALL_FLAGS /tmp/lease-sync_*.ipk || die "Failed to install lease-sync"
+opkg install $OPKG_INSTALL_FLAGS /tmp/ha-cluster_*.ipk || die "Failed to install ha-cluster"
 
 if ls /tmp/luci-app-ha-cluster_*.ipk >/dev/null 2>&1; then
 	info "Installing luci-app-ha-cluster..."
-	opkg install /tmp/luci-app-ha-cluster_*.ipk || warn "luci-app-ha-cluster installation failed (optional)"
+	opkg install $OPKG_INSTALL_FLAGS /tmp/luci-app-ha-cluster_*.ipk || warn "luci-app-ha-cluster installation failed (optional)"
 fi
 
 # --- Step 7: Clean up ---
