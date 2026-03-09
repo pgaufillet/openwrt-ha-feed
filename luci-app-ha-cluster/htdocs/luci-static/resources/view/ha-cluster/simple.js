@@ -64,7 +64,7 @@ return view.extend({
 			return addr && addr.indexOf(':') !== -1;
 		};
 
-		// Deterministic VRID from interface name (DJB2 hash, range 1-127)
+		// Deterministic VRID from instance name (DJB2 hash, range 1-127)
 		var computeVrid = function(ifname) {
 			var hash = 5381;
 			for (var i = 0; i < ifname.length; i++)
@@ -294,7 +294,7 @@ return view.extend({
 
 		// Virtual IP Configuration
 		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
-			_('Configure virtual IP addresses. VIPs on the same interface fail over together.'));
+			_('All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups.'));
 		s.anonymous = true;
 		s.addremove = true;
 		s.sortable = true;
@@ -325,7 +325,7 @@ return view.extend({
 		o.textvalue = function(section_id) {
 			var ifname = uci.get('ha-cluster', section_id, 'interface') || '';
 			return E('span', {}, [
-				E('img', { 'src': ifaceIconUrl(ifname), 'style': 'width:24px;height:24px;vertical-align:middle;margin-right:6px' }),
+				E('img', { 'src': ifaceIconUrl(ifname), 'style': 'width:16px;height:16px;vertical-align:middle;margin-right:4px' }),
 				E('span', {}, ifname || '-')
 			]);
 		};
@@ -363,33 +363,30 @@ return view.extend({
 			return ifname;
 		};
 		o.write = function(section_id, value) {
-			var oldInst = uci.get('ha-cluster', section_id, 'vrrp_instance');
-
 			uci.set('ha-cluster', section_id, 'interface', value);
 
-			// Auto-create or attach vrrp_instance for this interface
-			var instName = value + '_1';
+			// Ensure 'main' instance exists; attach VIP to it
+			var instName = 'main';
 			var exists = uci.sections('ha-cluster', 'vrrp_instance').some(function(inst) {
 				return inst['.name'] === instName;
 			});
 			if (!exists) {
 				var globalPriority = uci.get('ha-cluster', 'config', 'node_priority') || '100';
+				// Default advertisement interface: 'lan' if available, else blank
+				var defaultIface = '';
+				var ifaceList = interfaces || [];
+				for (var i = 0; i < ifaceList.length; i++) {
+					if (ifaceList[i].interface === 'lan') { defaultIface = 'lan'; break; }
+				}
 				uci.add('ha-cluster', 'vrrp_instance', instName);
-				uci.set('ha-cluster', instName, 'vrid', String(computeVrid(value)));
-				uci.set('ha-cluster', instName, 'interface', value);
+				uci.set('ha-cluster', instName, 'vrid', String(computeVrid(instName)));
+				if (defaultIface)
+					uci.set('ha-cluster', instName, 'interface', defaultIface);
 				uci.set('ha-cluster', instName, 'priority', globalPriority);
 				uci.set('ha-cluster', instName, 'nopreempt', '1');
+				uci.set('ha-cluster', instName, 'advert_int', '1');
 			}
 			uci.set('ha-cluster', section_id, 'vrrp_instance', instName);
-
-			// Garbage collect old instance if interface changed
-			if (oldInst && oldInst !== instName) {
-				var hasVips = uci.sections('ha-cluster', 'vip').some(function(vip) {
-					return vip['.name'] !== section_id && vip.vrrp_instance === oldInst;
-				});
-				if (!hasVips)
-					uci.remove('ha-cluster', oldInst);
-			}
 		};
 
 		o = s.option(form.Value, 'address', _('Virtual IP Address (IPv4)'));

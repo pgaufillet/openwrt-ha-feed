@@ -216,25 +216,21 @@ return view.extend({
 
 		// === VRRP Instances ===
 		s = m.section(form.GridSection, 'vrrp_instance', _('VRRP Instances'),
-			_('Instances are auto-created by the General page (one per interface, named &lt;iface&gt;_1). Add &lt;iface&gt;_2 here for independent failover groups on the same interface.'));
+			_('The General page creates a single "main" instance for atomic failover of all VIPs. Add extra instances here for independent failover groups.'));
 		s.anonymous = false;
 		s.addremove = true;
 		s.sortable = true;
+		s.sectiontitle = function(section_id) {
+			var ifname = uci.get('ha-cluster', section_id, 'interface') || '';
+			return E('span', {}, [
+				E('img', { 'src': ifaceIconUrl(ifname), 'style': 'width:16px;height:16px;vertical-align:middle;margin-right:4px' }),
+				E('span', {}, section_id)
+			]);
+		};
 		s.tab('timing', _('Timing'));
 		s.tab('auth', _('Authentication'));
 		s.tab('tracking', _('Tracking'));
 		s.tab('unicast', _('Unicast'));
-
-		o = s.option(form.DummyValue, '_instance_display', _('Instance'));
-		o.textvalue = function(section_id) {
-			var ifname = uci.get('ha-cluster', section_id, 'interface') || '';
-			var vrid = uci.get('ha-cluster', section_id, 'vrid') || '?';
-			return E('span', {}, [
-				E('img', { 'src': ifaceIconUrl(ifname), 'style': 'width:24px;height:24px;vertical-align:middle;margin-right:6px' }),
-				E('span', {}, section_id + ' (VRID ' + vrid + ', ' + (ifname || '-') + ')')
-			]);
-		};
-		o.modalonly = false;
 
 		o = s.option(form.DummyValue, '_vip_count', _('VIPs'));
 		o.textvalue = function(section_id) {
