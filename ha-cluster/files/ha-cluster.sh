@@ -134,6 +134,26 @@ ha_get_config() {
 	echo "$value"
 }
 
+# Collect peer addresses for unicast auto-derivation
+# Sets: _ha_peer_addresses (all peer address values)
+#        _ha_peer_source_address (first non-empty source_address found)
+_ha_peer_addresses=""
+_ha_peer_source_address=""
+_ha_collect_peer_address() {
+	local section="$1"
+	local address source_address
+
+	config_get address "$section" address ""
+	config_get source_address "$section" source_address ""
+
+	[ -z "$address" ] && return 0
+
+	_ha_peer_addresses="$_ha_peer_addresses $address"
+	if [ -z "$_ha_peer_source_address" ] && [ -n "$source_address" ]; then
+		_ha_peer_source_address="$source_address"
+	fi
+}
+
 # Generate keepalived configuration
 ha_generate_keepalived_conf() {
 	local node_name node_priority enable_notifications notification_email_from smtp_server
@@ -143,10 +163,16 @@ ha_generate_keepalived_conf() {
 	config_load ha-cluster
 	node_name="$(cat /proc/sys/kernel/hostname)"
 	config_get node_priority config node_priority "100"
+	config_get _ha_vrrp_transport config vrrp_transport "multicast"
 	config_get max_auto_priority advanced max_auto_priority "0"
 	config_get_bool enable_notifications advanced enable_notifications 0
 	config_get notification_email_from advanced notification_email_from ""
 	config_get smtp_server advanced smtp_server ""
+
+	# Collect peer addresses for unicast auto-derivation
+	_ha_peer_addresses=""
+	_ha_peer_source_address=""
+	config_foreach _ha_collect_peer_address peer
 
 	_ha_list_result=""
 	config_list_foreach advanced notification_email _ha_list_collect
@@ -189,8 +215,8 @@ EOF
 	# Generate VRRP scripts (health checks)
 	config_foreach ha_generate_vrrp_script script
 
-	# Generate VRRP instances
-	config_foreach ha_generate_vrrp_instance vip
+	# Generate VRRP instances (grouped by vrrp_instance section)
+	config_foreach ha_generate_vrrp_group vrrp_instance
 
 	ha_log "Keepalived configuration generated at $KEEPALIVED_CONF"
 	return 0
@@ -289,33 +315,73 @@ EOF
 	fi
 }
 
-# Generate a VRRP instance section
-ha_generate_vrrp_instance() {
+# Callback to collect VIPs belonging to a specific vrrp_instance
+# Sets: _ha_vip_v4_addrs, _ha_vip_v6_addrs (space-separated "addr dev iface" entries)
+_ha_collect_vip_for_instance() {
+	local vip_section="$1"
+	local vip_enabled vip_instance vip_interface vip_interface_logical
+	local vip_address vip_netmask vip_address6 vip_prefix6
+
+	config_get_bool vip_enabled "$vip_section" enabled 0
+	[ "$vip_enabled" -eq 0 ] && return 0
+
+	config_get vip_instance "$vip_section" vrrp_instance ""
+	[ "$vip_instance" != "$_ha_current_instance" ] && return 0
+
+	config_get vip_interface_logical "$vip_section" interface ""
+	config_get vip_address "$vip_section" address ""
+	config_get vip_netmask "$vip_section" netmask "255.255.255.0"
+	config_get vip_address6 "$vip_section" address6 ""
+	config_get vip_prefix6 "$vip_section" prefix6 "64"
+
+	[ -z "$vip_interface_logical" ] && { ha_log_warning "VIP $vip_section has no interface"; return 1; }
+	[ -z "$vip_address" ] && [ -z "$vip_address6" ] && { ha_log_warning "VIP $vip_section has no address (IPv4 or IPv6)"; return 1; }
+
+	# Resolve interface name
+	. /lib/functions/network.sh
+	local vip_iface_resolved
+	if network_get_device vip_iface_resolved "$vip_interface_logical" 2>/dev/null; then
+		ha_log_debug "VIP $vip_section: resolved interface '$vip_interface_logical' to device '$vip_iface_resolved'"
+	else
+		vip_iface_resolved="$vip_interface_logical"
+		ha_log_debug "VIP $vip_section: using interface '$vip_iface_resolved' as-is"
+	fi
+
+	# Collect IPv4 address
+	if [ -n "$vip_address" ]; then
+		local cidr
+		cidr=$(netmask_to_cidr "$vip_netmask") || {
+			ha_log_error "VIP $vip_section: invalid netmask '$vip_netmask'"
+			return 1
+		}
+		_ha_vip_v4_addrs="${_ha_vip_v4_addrs}        ${vip_address}/${cidr} dev ${vip_iface_resolved}
+"
+	fi
+
+	# Collect IPv6 address
+	if [ -n "$vip_address6" ]; then
+		is_valid_ipv6 "$vip_address6" || { ha_log_error "VIP $vip_section: invalid IPv6 address (got: $vip_address6)"; return 1; }
+		case "$vip_prefix6" in
+			''|*[!0-9]*) ha_log_error "VIP $vip_section: prefix6 must be a number (got: $vip_prefix6)"; return 1 ;;
+		esac
+		[ "$vip_prefix6" -lt 1 ] || [ "$vip_prefix6" -gt 128 ] && { ha_log_error "VIP $vip_section: prefix6 must be 1-128 (got: $vip_prefix6)"; return 1; }
+		_ha_vip_v6_addrs="${_ha_vip_v6_addrs}        ${vip_address6}/${vip_prefix6} dev ${vip_iface_resolved}
+"
+	fi
+}
+
+# Generate a VRRP group from a vrrp_instance section
+# Collects all enabled VIPs referencing this instance and generates
+# one keepalived vrrp_instance with all IPv4 addresses, plus a second
+# vrrp_instance (VRID+128) if any VIP has IPv6.
+ha_generate_vrrp_group() {
 	local section="$1"
-	local enabled interface interface_logical address netmask address6 prefix6 vrid priority nopreempt track_interface
+	local interface interface_logical vrid priority nopreempt track_interface
 	local advert_int preempt_delay garp_master_delay auth_type auth_pass unicast_src_ip
 	local track_ifaces="" track_scripts="" unicast_peers=""
 
-	config_get_bool enabled "$section" enabled 0
-	[ "$enabled" -eq 0 ] && return 0
-
-	# Get interface from UCI (may be logical name like "lan" or device name like "br-lan")
+	# Get instance-level options
 	config_get interface_logical "$section" interface
-
-	# Try to resolve to device name using OpenWrt network helpers
-	# If it's already a device name, network_get_device will fail and we keep the original
-	. /lib/functions/network.sh
-	if network_get_device interface "$interface_logical" 2>/dev/null; then
-		ha_log_debug "VIP $section: resolved interface '$interface_logical' to device '$interface'"
-	else
-		# Not a UCI interface, assume it's already a device name
-		interface="$interface_logical"
-		ha_log_debug "VIP $section: using interface '$interface' as-is (not a UCI interface name)"
-	fi
-	config_get address "$section" address
-	config_get netmask "$section" netmask "255.255.255.0"
-	config_get address6 "$section" address6 ""
-	config_get prefix6 "$section" prefix6 "64"
 	config_get vrid "$section" vrid
 	config_get priority "$section" priority "$(ha_get_config node_priority 100)"
 	config_get_bool nopreempt "$section" nopreempt 1
@@ -327,42 +393,32 @@ ha_generate_vrrp_instance() {
 	config_get auth_pass "$section" auth_pass ""
 	config_get unicast_src_ip "$section" unicast_src_ip ""
 
-	[ -z "$interface" ] && { ha_log_warning "VIP $section has no interface"; return 1; }
-	[ -z "$address" ] && [ -z "$address6" ] && { ha_log_warning "VIP $section has no address (IPv4 or IPv6)"; return 1; }
-	[ -z "$vrid" ] && { ha_log_warning "VIP $section has no VRID"; return 1; }
+	[ -z "$interface_logical" ] && { ha_log_warning "vrrp_instance $section has no interface"; return 1; }
+	[ -z "$vrid" ] && { ha_log_warning "vrrp_instance $section has no VRID"; return 1; }
 
-	# Validate IPv6 address and prefix if set
-	if [ -n "$address6" ]; then
-		is_valid_ipv6 "$address6" || { ha_log_error "VIP $section: invalid IPv6 address (got: $address6)"; return 1; }
-		case "$prefix6" in
-			''|*[!0-9]*) ha_log_error "VIP $section: prefix6 must be a number (got: $prefix6)"; return 1 ;;
-		esac
-		[ "$prefix6" -lt 1 ] || [ "$prefix6" -gt 128 ] && { ha_log_error "VIP $section: prefix6 must be 1-128 (got: $prefix6)"; return 1; }
+	# Resolve primary interface
+	. /lib/functions/network.sh
+	if network_get_device interface "$interface_logical" 2>/dev/null; then
+		ha_log_debug "vrrp_instance $section: resolved interface '$interface_logical' to device '$interface'"
+	else
+		interface="$interface_logical"
+		ha_log_debug "vrrp_instance $section: using interface '$interface' as-is"
 	fi
 
-	# Validate numeric fields to prevent config injection
+	# Validate VRID (1-127, 128+ reserved for IPv6)
 	case "$vrid" in
-		''|*[!0-9]*) ha_log_error "VIP $section: VRID must be a number (got: $vrid)"; return 1 ;;
+		''|*[!0-9]*) ha_log_error "vrrp_instance $section: VRID must be a number (got: $vrid)"; return 1 ;;
 	esac
-	[ "$vrid" -lt 1 ] || [ "$vrid" -gt 255 ] && { ha_log_error "VIP $section: VRID must be 1-255 (got: $vrid)"; return 1; }
+	[ "$vrid" -lt 1 ] || [ "$vrid" -gt 127 ] && { ha_log_error "vrrp_instance $section: VRID must be 1-127 (got: $vrid)"; return 1; }
 
 	case "$priority" in
-		''|*[!0-9]*) ha_log_error "VIP $section: priority must be a number (got: $priority)"; return 1 ;;
+		''|*[!0-9]*) ha_log_error "vrrp_instance $section: priority must be a number (got: $priority)"; return 1 ;;
 	esac
-	[ "$priority" -lt 1 ] || [ "$priority" -gt 255 ] && { ha_log_error "VIP $section: priority must be 1-255 (got: $priority)"; return 1; }
+	[ "$priority" -lt 1 ] || [ "$priority" -gt 255 ] && { ha_log_error "vrrp_instance $section: priority must be 1-255 (got: $priority)"; return 1; }
 
 	case "$advert_int" in
-		''|*[!0-9]*) ha_log_error "VIP $section: advert_int must be a number (got: $advert_int)"; return 1 ;;
+		''|*[!0-9]*) ha_log_error "vrrp_instance $section: advert_int must be a number (got: $advert_int)"; return 1 ;;
 	esac
-
-	# Convert netmask to CIDR notation for keepalived (only if IPv4 address set)
-	local cidr=""
-	if [ -n "$address" ]; then
-		cidr=$(netmask_to_cidr "$netmask") || {
-			ha_log_error "Cannot generate keepalived config: invalid netmask '$netmask'"
-			return 1
-		}
-	fi
 
 	# Collect track interfaces (list or single)
 	_ha_list_result=""
@@ -383,17 +439,41 @@ ha_generate_vrrp_instance() {
 		ah|AH) auth_type="AH" ;;
 	esac
 
-	# Collect unicast peers
+	# Collect unicast peers (per-instance explicit config)
 	_ha_list_result=""
 	config_list_foreach "$section" unicast_peer _ha_list_collect
 	unicast_peers="$_ha_list_result"
 
-	if [ -n "$unicast_peers" ] && [ -z "$unicast_src_ip" ]; then
-		ha_log_warning "VIP $section has unicast_peer but no unicast_src_ip"
+	# Unicast auto-derivation: when vrrp_transport=unicast and no per-instance override,
+	# derive unicast_src_ip from peer source_address and unicast_peer from peer addresses
+	if [ "$_ha_vrrp_transport" = "unicast" ] && [ -z "$unicast_peers" ]; then
+		unicast_peers="$_ha_peer_addresses"
+		if [ -z "$unicast_src_ip" ] && [ -n "$_ha_peer_source_address" ]; then
+			unicast_src_ip="$_ha_peer_source_address"
+		fi
+		ha_log_debug "vrrp_instance $section: unicast auto-derived from peer config"
 	fi
 
-	cat >> "$KEEPALIVED_CONF" <<EOF
-vrrp_instance VI_${section} {
+	if [ -n "$unicast_peers" ] && [ -z "$unicast_src_ip" ]; then
+		ha_log_warning "vrrp_instance $section has unicast_peer but no unicast_src_ip"
+	fi
+
+	# Collect all VIPs belonging to this instance
+	_ha_current_instance="$section"
+	_ha_vip_v4_addrs=""
+	_ha_vip_v6_addrs=""
+	config_foreach _ha_collect_vip_for_instance vip
+
+	# Must have at least one VIP
+	[ -z "$_ha_vip_v4_addrs" ] && [ -z "$_ha_vip_v6_addrs" ] && {
+		ha_log_warning "vrrp_instance $section has no enabled VIPs"
+		return 0
+	}
+
+	# Write IPv4 VRRP instance (if any IPv4 VIPs)
+	if [ -n "$_ha_vip_v4_addrs" ]; then
+		cat >> "$KEEPALIVED_CONF" <<EOF
+vrrp_instance ${section} {
     state BACKUP
     interface $interface
     virtual_router_id $vrid
@@ -401,35 +481,32 @@ vrrp_instance VI_${section} {
     advert_int $advert_int
 EOF
 
-	_ha_write_vrrp_instance_options "$section"
+		_ha_write_vrrp_instance_options "$section"
 
-	# Virtual IP address(es)
-	# Note: Keepalived requires separate VRRP instances for IPv4 and IPv6
-	# If both address and address6 are set, close this IPv4 instance and create a separate IPv6 one
-	echo "    virtual_ipaddress {" >> "$KEEPALIVED_CONF"
-	[ -n "$address" ] && echo "        $address/$cidr dev $interface" >> "$KEEPALIVED_CONF"
-	cat >> "$KEEPALIVED_CONF" <<EOF
+		echo "    virtual_ipaddress {" >> "$KEEPALIVED_CONF"
+		printf '%s' "$_ha_vip_v4_addrs" >> "$KEEPALIVED_CONF"
+		cat >> "$KEEPALIVED_CONF" <<EOF
     }
 
     # Notify scripts for state changes
-    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=VI_${section} /sbin/hotplug-call keepalived"
-    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=VI_${section} /sbin/hotplug-call keepalived"
-    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=VI_${section} /sbin/hotplug-call keepalived"
+    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=${section} /sbin/hotplug-call keepalived"
+    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=${section} /sbin/hotplug-call keepalived"
+    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=${section} /sbin/hotplug-call keepalived"
 }
 
 EOF
+	fi
 
-	# If IPv6 VIP is also configured, create a separate VRRP instance for it
-	# (keepalived doesn't allow mixing IPv4 and IPv6 in same instance)
-	if [ -n "$address6" ]; then
-		local vrid6=$((vrid + 1))
+	# Write IPv6 VRRP instance (if any IPv6 VIPs)
+	if [ -n "$_ha_vip_v6_addrs" ]; then
+		local vrid6=$((vrid + 128))
 		if [ "$vrid6" -gt 255 ]; then
-			ha_log_error "VIP $section: IPv6 VRID would be $vrid6 (VRID+1), exceeds 255"
+			ha_log_error "vrrp_instance $section: IPv6 VRID would be $vrid6 (VRID+128), exceeds 255"
 			return 1
 		fi
 
 		cat >> "$KEEPALIVED_CONF" <<EOF
-vrrp_instance VI_${section}_v6 {
+vrrp_instance ${section}_v6 {
     state BACKUP
     interface $interface
     virtual_router_id $vrid6
@@ -439,16 +516,15 @@ EOF
 
 		_ha_write_vrrp_instance_options "${section}_v6"
 
-		# IPv6 Virtual IP
+		echo "    virtual_ipaddress {" >> "$KEEPALIVED_CONF"
+		printf '%s' "$_ha_vip_v6_addrs" >> "$KEEPALIVED_CONF"
 		cat >> "$KEEPALIVED_CONF" <<EOF
-    virtual_ipaddress {
-        $address6/$prefix6 dev $interface
     }
 
     # Notify scripts for state changes
-    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=VI_${section}_v6 /sbin/hotplug-call keepalived"
-    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=VI_${section}_v6 /sbin/hotplug-call keepalived"
-    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=VI_${section}_v6 /sbin/hotplug-call keepalived"
+    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=${section}_v6 /sbin/hotplug-call keepalived"
+    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=${section}_v6 /sbin/hotplug-call keepalived"
+    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=${section}_v6 /sbin/hotplug-call keepalived"
 }
 
 EOF
@@ -462,7 +538,10 @@ ha_generate_owsync_conf() {
 	config_load ha-cluster
 	config_get sync_method config sync_method "owsync"
 
-	[ "$sync_method" != "owsync" ] && return 0
+	[ "$sync_method" != "owsync" ] && {
+		rm -f "$OWSYNC_CONF"
+		return 0
+	}
 
 	config_get encryption_key config encryption_key ""
 	config_get sync_port config sync_port "4321"
@@ -533,9 +612,13 @@ EOF
 
 # Add peer to owsync config (uses global port from config)
 # Supports per-peer source_address for source address selection
+# Skips peers with sync_enabled=0 (non-OpenWrt peers)
 ha_add_owsync_peer_conf() {
 	local section="$1"
-	local address source_address
+	local address source_address sync_enabled
+
+	config_get_bool sync_enabled "$section" sync_enabled 1
+	[ "$sync_enabled" -eq 0 ] && return 0
 
 	config_get address "$section" address
 	config_get source_address "$section" source_address ""
@@ -598,6 +681,7 @@ ha_generate_lease_sync_conf() {
 
 	[ "$dhcp_service_enabled" -eq 0 ] || [ "$lease_sync_enabled" -eq 0 ] && {
 		ha_log_debug "DHCP lease sync disabled"
+		rm -f "$LEASE_SYNC_CONF"
 		return 0
 	}
 
@@ -657,9 +741,13 @@ EOF
 }
 
 # Supports per-peer source_address for source address selection
+# Skips peers with sync_enabled=0 (non-OpenWrt peers)
 ha_add_lease_sync_peer_flat() {
 	local section="$1"
-	local address source_address
+	local address source_address sync_enabled
+
+	config_get_bool sync_enabled "$section" sync_enabled 1
+	[ "$sync_enabled" -eq 0 ] && return 0
 
 	config_get address "$section" address
 	config_get source_address "$section" source_address ""
@@ -686,8 +774,8 @@ ha_validate_config() {
 	config_get_bool enabled config enabled 0
 	[ "$enabled" -eq 0 ] && return 0
 
-	# Validate VRIDs are unique
-	config_foreach ha_check_vrid_unique vip
+	# Validate VRIDs are unique across vrrp_instance sections
+	config_foreach ha_check_vrid_unique vrrp_instance
 
 	# Check for peer configuration
 	local peer_count=0
@@ -701,23 +789,29 @@ ha_validate_config() {
 
 ha_check_vrid_unique() {
 	local section="$1"
-	local enabled vrid interface vrid_key
-
-	config_get_bool enabled "$section" enabled 0
-	[ "$enabled" -eq 0 ] && return 0
+	local vrid
 
 	config_get vrid "$section" vrid
 	[ -z "$vrid" ] && return 0
 
-	config_get interface "$section" interface
-	vrid_key="${interface}:${vrid}"
-
-	echo "$vrid_list" | grep -qw "$vrid_key" && {
-		ha_log_error "Duplicate VRID $vrid on interface $interface in section $section"
+	# Validate VRID range (1-127, 128+ reserved for IPv6)
+	case "$vrid" in
+		''|*[!0-9]*) ha_log_error "vrrp_instance $section: VRID must be a number (got: $vrid)"; errors=$((errors + 1)); return 1 ;;
+	esac
+	[ "$vrid" -gt 127 ] && {
+		ha_log_error "vrrp_instance $section: VRID must be 1-127 (got: $vrid, 128-255 reserved for IPv6)"
+		errors=$((errors + 1))
 		return 1
 	}
 
-	vrid_list="$vrid_list $vrid_key"
+	# Check uniqueness (global, not per-interface — instances are global)
+	echo "$vrid_list" | grep -qw "$vrid" && {
+		ha_log_error "Duplicate VRID $vrid in vrrp_instance section $section"
+		errors=$((errors + 1))
+		return 1
+	}
+
+	vrid_list="$vrid_list $vrid"
 }
 
 ha_count_peers() {

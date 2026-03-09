@@ -91,12 +91,20 @@ uci add ha-cluster peer
 uci set ha-cluster.@peer[-1].name='router2'
 uci set ha-cluster.@peer[-1].address='192.168.1.2'
 
+# Create a VRRP instance (all VIPs in same instance fail over together)
+uci set ha-cluster.main=vrrp_instance
+uci set ha-cluster.main.vrid='51'
+uci set ha-cluster.main.interface='lan'
+uci set ha-cluster.main.priority='100'
+uci set ha-cluster.main.nopreempt='1'
+
 # Configure a VIP
+uci set ha-cluster.lan=vip
 uci set ha-cluster.lan.enabled='1'
+uci set ha-cluster.lan.vrrp_instance='main'
 uci set ha-cluster.lan.interface='br-lan'
 uci set ha-cluster.lan.address='192.168.1.254'
 uci set ha-cluster.lan.netmask='255.255.255.0'
-uci set ha-cluster.lan.vrid='51'
 
 # Apply
 uci commit ha-cluster
@@ -114,6 +122,7 @@ All configuration lives in `/etc/config/ha-cluster`.
 |--------|------|---------|-------------|
 | `enabled` | bool | `0` | Enable/disable ha-cluster |
 | `node_priority` | int | `100` | VRRP priority (1-255, higher wins MASTER) |
+| `vrrp_transport` | string | `multicast` | VRRP transport: `multicast` or `unicast`. When `unicast`, auto-derives addresses from peer config |
 | `sync_method` | string | `owsync` | Sync backend: `owsync` or `none` |
 | `sync_encryption` | bool | `1` | Encrypt owsync traffic (AES-256-GCM) |
 | `encryption_key` | string | | 256-bit hex key (use LuCI "Generate" button or `hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom`) |
@@ -121,23 +130,19 @@ All configuration lives in `/etc/config/ha-cluster`.
 | `sync_dir` | string | `/etc/config` | Directory to synchronize |
 | `bind_address` | string | | Local IP for sync traffic (use real IP, not VIP) |
 
-### Virtual IPs (`config vip '<name>'`)
+### VRRP Instances (`config vrrp_instance '<name>'`)
 
-Each section creates a VRRP instance on the specified interface.
+Each section defines a VRRP instance. All VIPs referencing the same instance
+fail over atomically as a group (one advertisement, one failover event).
 
-When `address6` is set, an additional VRRP instance is created automatically
-using VRID+1 for the IPv6 VIP.
+When any VIP in the group has `address6` set, a second VRRP instance is
+created automatically using VRID+128 for all IPv6 VIPs.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | bool | `1` | Enable this VIP |
-| `interface` | string | | Network interface (e.g. `br-lan`) |
-| `address` | string | | Virtual IPv4 address |
-| `netmask` | string | `255.255.255.0` | IPv4 netmask |
-| `address6` | string | | Virtual IPv6 address (optional, uses VRID+1) |
-| `prefix6` | int | `64` | IPv6 prefix length |
-| `vrid` | int | | VRRP router ID (1-255, must be unique on segment) |
-| `priority` | int | | Override global `node_priority` for this VIP |
+| `vrid` | int | | VRRP router ID (1-127, 128+ reserved for IPv6) |
+| `interface` | string | | Primary interface for VRRP advertisements |
+| `priority` | int | | Override global `node_priority` for this instance |
 | `nopreempt` | bool | `1` | Don't reclaim MASTER on recovery |
 | `preempt_delay` | int | | Delay before preempting (seconds) |
 | `garp_master_delay` | int | | Gratuitous ARP delay after becoming MASTER |
@@ -146,8 +151,23 @@ using VRID+1 for the IPv6 VIP.
 | `track_script` | list | | Health check script names |
 | `auth_type` | string | `none` | VRRP auth: `none`, `pass`, or `ah` |
 | `auth_pass` | string | | VRRP auth password |
-| `unicast_src_ip` | string | | Source IP for unicast VRRP |
-| `unicast_peer` | list | | Unicast peer IPs |
+| `unicast_src_ip` | string | | Source IP for unicast VRRP (overrides auto-derivation) |
+| `unicast_peer` | list | | Unicast peer IPs (overrides auto-derivation) |
+
+### Virtual IPs (`config vip '<name>'`)
+
+Each VIP references a `vrrp_instance` section. Multiple VIPs can share the
+same instance for atomic failover.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `1` | Enable this VIP |
+| `vrrp_instance` | string | | Name of `vrrp_instance` section |
+| `interface` | string | | Network interface for this VIP (e.g. `br-lan`) |
+| `address` | string | | Virtual IPv4 address |
+| `netmask` | string | `255.255.255.0` | IPv4 netmask |
+| `address6` | string | | Virtual IPv6 address (optional, uses VRID+128) |
+| `prefix6` | int | `64` | IPv6 prefix length |
 
 ### Peers (`config peer`)
 
@@ -155,7 +175,8 @@ using VRID+1 for the IPv6 VIP.
 |--------|------|-------------|
 | `name` | string | Peer identifier |
 | `address` | string | Peer IP address |
-| `source_address` | string | Local IP to use when contacting this peer |
+| `source_address` | string | Local IP to use when contacting this peer (also used as `unicast_src_ip` for auto-derivation) |
+| `sync_enabled` | bool | `1` | Enable owsync/lease-sync for this peer. Set to `0` for non-OpenWrt peers (VRRP-only) |
 
 ### Services (`config service '<name>'`)
 
