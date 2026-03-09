@@ -8,83 +8,119 @@
 'require uci';
 'require ui';
 
+var ChipListValue = form.Value.extend({
+	__name__: 'CBI.ChipListValue',
+
+	renderChip: function(container, value) {
+		var self = this;
+		var chip = E('span', {
+			'class': 'label',
+			'style': 'display: inline-flex; align-items: center; margin: 2px 4px 2px 0; padding: 4px 8px; background: #f0f0f0; border-radius: 12px; font-family: monospace; font-size: 12px;',
+			'data-value': value
+		}, [
+			E('span', {}, value),
+			E('button', {
+				'type': 'button',
+				'style': 'border: none; background: transparent; cursor: pointer; margin-left: 6px; padding: 0; font-size: 14px; color: #666; line-height: 1;',
+				'title': _('Remove'),
+				'click': function(ev) {
+					ev.currentTarget.parentNode.remove();
+				}
+			}, '\u00d7')
+		]);
+		container.appendChild(chip);
+	},
+
+	renderWidget: function(section_id, option_index, cfgvalue) {
+		var values = L.toArray(cfgvalue);
+		var self = this;
+
+		var chipsContainer = E('div', {
+			'id': this.cbid(section_id) + '-chips',
+			'style': 'display: flex; flex-wrap: wrap; align-items: center; min-height: 32px; padding: 4px 0;'
+		});
+
+		values.forEach(function(v) {
+			self.renderChip(chipsContainer, v);
+		});
+
+		if (values.length === 0) {
+			chipsContainer.appendChild(E('span', {
+				'style': 'font-style: italic; color: #888;'
+			}, _('No exclusions configured')));
+		}
+
+		var input = E('input', {
+			'type': 'text',
+			'class': 'cbi-input-text',
+			'placeholder': this.placeholder || '',
+			'style': 'flex: 1; min-width: 200px;'
+		});
+
+		var addBtn = E('button', {
+			'class': 'cbi-button cbi-button-add',
+			'style': 'margin-left: 4px;',
+			'click': L.bind(function(ev) {
+				var val = input.value.trim();
+				if (!val) return;
+
+				// Check for duplicates
+				var existing = chipsContainer.querySelectorAll('[data-value]');
+				for (var i = 0; i < existing.length; i++) {
+					if (existing[i].getAttribute('data-value') === val) {
+						ui.addNotification(null, E('p', _('Pattern already exists.')));
+						return;
+					}
+				}
+
+				// Remove placeholder text if present
+				var placeholder = chipsContainer.querySelector('span[style*="italic"]');
+				if (placeholder) placeholder.remove();
+
+				this.renderChip(chipsContainer, val);
+				input.value = '';
+			}, this)
+		}, _('Add'));
+
+		return E('div', {}, [
+			chipsContainer,
+			E('div', { 'style': 'display: flex; align-items: center; margin-top: 4px;' }, [
+				input,
+				addBtn
+			])
+		]);
+	},
+
+	formvalue: function(section_id) {
+		var container = document.getElementById(this.cbid(section_id) + '-chips');
+		if (!container) return [];
+
+		var chips = container.querySelectorAll('[data-value]');
+		var values = [];
+		for (var i = 0; i < chips.length; i++) {
+			values.push(chips[i].getAttribute('data-value'));
+		}
+		return values;
+	},
+
+	write: function(section_id, formvalue) {
+		uci.set('ha-cluster', section_id, this.option, formvalue);
+	},
+
+	remove: function(section_id) {
+		uci.unset('ha-cluster', section_id, this.option);
+	}
+});
+
 return view.extend({
 	load: function() {
 		return uci.load('ha-cluster');
 	},
 
-	handleExclusionRemove: function(pattern, ev) {
-		var excludeSections = uci.sections('ha-cluster', 'exclude');
-		if (excludeSections.length === 0) return;
-
-		var sectionId = excludeSections[0]['.name'];
-		var files = uci.get('ha-cluster', sectionId, 'file') || [];
-		if (!Array.isArray(files)) files = files ? [files] : [];
-
-		var idx = files.indexOf(pattern);
-		if (idx !== -1) {
-			files.splice(idx, 1);
-			uci.set('ha-cluster', sectionId, 'file', files);
-			// Remove chip from DOM
-			var chip = ev.currentTarget.parentNode;
-			if (chip) chip.remove();
-		}
-	},
-
-	handleExclusionAdd: function(ev) {
-		var input = document.getElementById('new-exclusion-input');
-		var pattern = (input.value || '').trim();
-
-		if (!pattern) {
-			ui.addNotification(null, E('p', _('Please enter an exclusion pattern.')));
-			return;
-		}
-
-		// Ensure exclude section exists
-		var excludeSections = uci.sections('ha-cluster', 'exclude');
-		var sectionId;
-		if (excludeSections.length === 0) {
-			sectionId = uci.add('ha-cluster', 'exclude');
-		} else {
-			sectionId = excludeSections[0]['.name'];
-		}
-
-		var files = uci.get('ha-cluster', sectionId, 'file') || [];
-		if (!Array.isArray(files)) files = files ? [files] : [];
-
-		if (files.indexOf(pattern) !== -1) {
-			ui.addNotification(null, E('p', _('Pattern already exists.')));
-			return;
-		}
-
-		files.push(pattern);
-		uci.set('ha-cluster', sectionId, 'file', files);
-
-		// Add chip to DOM
-		var container = document.getElementById('exclusion-chips');
-		container.appendChild(this.renderChip(pattern));
-		input.value = '';
-	},
-
-	renderChip: function(pattern) {
-		return E('span', {
-			'class': 'label',
-			'style': 'display: inline-flex; align-items: center; margin: 2px 4px 2px 0; padding: 4px 8px; background: #f0f0f0; border-radius: 12px; font-family: monospace; font-size: 12px;'
-		}, [
-			E('span', {}, pattern),
-			E('button', {
-				'type': 'button',
-				'style': 'border: none; background: transparent; cursor: pointer; margin-left: 6px; padding: 0; font-size: 14px; color: #666; line-height: 1;',
-				'click': ui.createHandlerFn(this, 'handleExclusionRemove', pattern),
-				'title': _('Remove')
-			}, '\u00d7')
-		]);
-	},
-
 	render: function() {
 		var m, s, o;
 		var self = this;
-		var baseServices = ['dhcp', 'firewall', 'dns', 'wireless', 'vpn'];
+		var baseServices = ['dhcp', 'firewall', 'wireless'];
 
 		m = new form.Map('ha-cluster', _('High Availability - Advanced Config Sync'),
 			_('Custom sync groups for services beyond General settings (e.g., VPN, mwan3).'));
@@ -156,65 +192,15 @@ return view.extend({
 		o.placeholder = 'openvpn or /etc/openvpn/keys';
 		o.modalonly = true;
 
-		// Render form.Map, then append exclusions section
-		return m.render().then(L.bind(function(mapEl) {
-			// Get current exclusions
-			var excludeSections = uci.sections('ha-cluster', 'exclude');
-			var exclusions = [];
-			if (excludeSections.length > 0) {
-				var files = uci.get('ha-cluster', excludeSections[0]['.name'], 'file') || [];
-				if (!Array.isArray(files)) files = files ? [files] : [];
-				exclusions = files;
-			}
+		// === Exclusions ===
+		s = m.section(form.TypedSection, 'exclude', _('Exclusions'),
+			_('Files excluded from sync. Default: network, system, ha-cluster, owsync.'));
+		s.anonymous = true;
+		s.addremove = false;
 
-			// Build exclusions section with chip/tag UI
-			var chipsContainer = E('div', {
-				'id': 'exclusion-chips',
-				'style': 'display: flex; flex-wrap: wrap; align-items: center; min-height: 32px; padding: 8px 0; margin-bottom: 8px;'
-			});
+		o = s.option(ChipListValue, 'file', _('Excluded Files'));
+		o.placeholder = '/etc/dropbear/*.key';
 
-			exclusions.forEach(L.bind(function(pattern) {
-				chipsContainer.appendChild(this.renderChip(pattern));
-			}, this));
-
-			if (exclusions.length === 0) {
-				chipsContainer.appendChild(E('span', {
-					'class': 'cbi-value-description',
-					'style': 'font-style: italic; color: #888;'
-				}, _('No additional exclusions configured')));
-			}
-
-			var exclusionsSection = E('div', { 'class': 'cbi-section' }, [
-				E('h3', {}, _('Exclusions')),
-				E('div', { 'class': 'cbi-section-descr' },
-					_('Files excluded by default: network, system, ha-cluster, owsync. Add patterns below.')),
-				E('div', { 'class': 'cbi-section-node' }, [
-					chipsContainer,
-					E('div', { 'class': 'cbi-section-create' }, [
-						E('div', {}, [
-							E('input', {
-								'type': 'text',
-								'class': 'cbi-section-create-name',
-								'id': 'new-exclusion-input',
-								'placeholder': '/etc/dropbear/*.key'
-							})
-						]),
-						E('button', {
-							'class': 'cbi-button cbi-button-add',
-							'click': ui.createHandlerFn(this, 'handleExclusionAdd')
-						}, _('Add'))
-					])
-				])
-			]);
-
-			mapEl.appendChild(exclusionsSection);
-			return mapEl;
-		}, this)).catch(function(err) {
-			ui.addNotification(null,
-				E('p', {}, _('Failed to render configuration: ') + err.message),
-				'danger');
-			return E('div', { 'class': 'cbi-map-error' },
-				E('p', {}, _('Error loading page. Please try refreshing.')));
-		});
+		return m.render();
 	}
 });

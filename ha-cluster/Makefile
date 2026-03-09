@@ -60,7 +60,10 @@ endef
 
 define Package/ha-cluster/postinst
 #!/bin/sh
-[ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/ha-cluster enable
+[ -n "$${IPKG_INSTROOT}" ] || {
+	/etc/init.d/ha-cluster enable
+	/etc/init.d/ha-cluster start
+}
 exit 0
 endef
 

@@ -220,17 +220,24 @@ return view.extend({
 		s.anonymous = false;
 		s.addremove = true;
 		s.sortable = true;
-		s.sectiontitle = function(section_id) {
-			var ifname = uci.get('ha-cluster', section_id, 'interface') || '';
-			return E('span', {}, [
-				E('img', { 'src': ifaceIconUrl(ifname), 'style': 'width:16px;height:16px;vertical-align:middle;margin-right:4px' }),
-				E('span', {}, section_id)
-			]);
-		};
+		s.nodescriptions = true;
+		s.tab('general', _('General'));
 		s.tab('timing', _('Timing'));
 		s.tab('auth', _('Authentication'));
 		s.tab('tracking', _('Tracking'));
 		s.tab('unicast', _('Unicast'));
+
+		o = s.option(form.DummyValue, '_vrid_display', _('VRID'));
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			return uci.get('ha-cluster', section_id, 'vrid') || '-';
+		};
+
+		o = s.option(form.DummyValue, '_iface_display', _('Interface'));
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			return uci.get('ha-cluster', section_id, 'interface') || '-';
+		};
 
 		o = s.option(form.DummyValue, '_vip_count', _('VIPs'));
 		o.textvalue = function(section_id) {
@@ -241,10 +248,12 @@ return view.extend({
 		};
 		o.modalonly = false;
 
-		o = s.option(form.Value, 'vrid', _('VRID'),
-			_('Virtual Router ID (1-127). 128-255 reserved for auto-generated IPv6 instances.'));
+		// === General Tab ===
+		o = s.taboption('general', form.Value, 'vrid', _('VRID'),
+			_('Virtual Router ID (1-127). Must match on all cluster nodes. 128-255 reserved for auto-generated IPv6 instances.'));
 		o.datatype = 'range(1,127)';
 		o.rmempty = false;
+		o.modalonly = true;
 		o.validate = function(section_id, value) {
 			if (!value) return true;
 			var vrid = parseInt(value);
@@ -257,9 +266,10 @@ return view.extend({
 			return true;
 		};
 
-		o = s.option(form.ListValue, 'interface', _('Primary Interface'),
+		o = s.taboption('general', form.ListValue, 'interface', _('Primary Interface'),
 			_('Interface used for VRRP advertisements.'));
 		o.rmempty = false;
+		o.modalonly = true;
 		if (interfaces && interfaces.length) {
 			var seen3 = {};
 			interfaces.forEach(function(iface) {

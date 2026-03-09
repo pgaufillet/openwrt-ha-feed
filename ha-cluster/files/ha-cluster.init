@@ -54,6 +54,7 @@ start_service() {
 		procd_open_instance owsync
 		procd_set_param command /usr/bin/owsync daemon
 		procd_append_param command -c "$OWSYNC_CONF"
+		procd_set_param file "$OWSYNC_CONF"
 		procd_set_param respawn
 		procd_set_param stdout 1
 		procd_set_param stderr 1
@@ -66,6 +67,7 @@ start_service() {
 		procd_open_instance lease-sync
 		procd_set_param command /usr/sbin/lease-sync
 		procd_append_param command -c "$LEASE_SYNC_CONF"
+		procd_set_param file "$LEASE_SYNC_CONF"
 		procd_set_param respawn
 		procd_set_param stdout 1
 		procd_set_param stderr 1
@@ -89,23 +91,44 @@ stop_service() {
 }
 
 reload_service() {
+	local enabled
+
+	config_load ha-cluster
+	config_get_bool enabled config enabled 0
+
+	# Initialize log level from UCI
+	ha_log_init
+
 	ha_log_info "Reloading HA cluster configuration"
 
-	# Re-generate all config files from UCI
-	ha_apply_config || {
-		ha_log_error "Failed to apply configuration during reload"
-		return 1
-	}
-
-	# Signal keepalived to reload its configuration (no VIP interruption)
-	local keepalived_pid
-	keepalived_pid=$(cat /var/run/keepalived.pid 2>/dev/null)
-	if [ -n "$keepalived_pid" ] && kill -0 "$keepalived_pid" 2>/dev/null; then
-		ha_log_info "Sending SIGHUP to keepalived (pid $keepalived_pid)"
-		kill -HUP "$keepalived_pid"
-	else
-		ha_log_warning "keepalived not running, skipping SIGHUP"
+	# Not running → start or nothing
+	if ! procd_running ha-cluster; then
+		if [ "$enabled" -eq 1 ]; then
+			ha_log_info "Service not running, performing full start"
+			start
+		fi
+		return 0
 	fi
+
+	# Running + disabled → stop
+	if [ "$enabled" -eq 0 ]; then
+		ha_log_info "HA cluster disabled, stopping"
+		stop
+		return 0
+	fi
+
+	# Running + enabled → reconcile all instances via procd
+	# start_service() regenerates configs and re-defines procd instances.
+	# procd compares new vs running instances:
+	#   - keepalived: command line unchanged → procd does nothing
+	#   - owsync/lease-sync: config file tracked → procd restarts on change
+	#   - owsync/lease-sync: instance appeared/disappeared → procd starts/stops
+	start
+
+	# SIGHUP keepalived to reload its config file without dropping VIPs.
+	# procd doesn't restart keepalived (command line unchanged), so we
+	# signal it to re-read keepalived.conf in-place (no failover).
+	procd_send_signal ha-cluster keepalived SIGHUP
 }
 
 service_triggers() {
