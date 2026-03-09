@@ -9,6 +9,13 @@
 'require network';
 'require fs';
 'require ui';
+'require rpc';
+
+var callGetInterfaces = rpc.declare({
+	object: 'network.interface',
+	method: 'dump',
+	expect: { 'interface': [] }
+});
 
 var hooksPath = '/etc/hotplug.d/keepalived';
 var systemHook = '50-ha-cluster';
@@ -38,36 +45,25 @@ return view.extend({
 		return Promise.all([
 			uci.load('ha-cluster'),
 			network.getDevices(),
-			L.resolveDefault(fs.list(hooksPath), [])
+			L.resolveDefault(fs.list(hooksPath), []),
+			callGetInterfaces()
 		]);
 	},
 
-	currentHookData: null,
+	handleHookEdit: function(filename, ev) {
+		var filepath = hooksPath + '/' + filename;
 
-	handleHookEdit: function(filename, content, isEnabled, ev) {
-		this.currentHookData = { filename: filename, content: content, isEnabled: isEnabled };
+		return L.resolveDefault(fs.read(filepath), '').then(L.bind(function(content) {
+			// Use template if content is empty or just whitespace
+			var displayContent = (content && content.trim()) ? content : hookTemplate;
 
-		// Use template if content is empty or just whitespace
-		var displayContent = (content && content.trim()) ? content : hookTemplate;
-
-		ui.showModal(_('Edit Hook: %s').format(filename), [
+			ui.showModal(_('Edit Hook: %s').format(filename), [
 			E('p', {}, _('Shell script executed on VRRP state changes. Environment variables: $ACTION, $NAME, $TYPE.')),
 			E('textarea', {
 				'id': 'modal-hook-content',
 				'rows': 20,
 				'wrap': 'off'
 			}, displayContent),
-			E('p', {}, [
-				E('label', {}, [
-					E('input', {
-						'type': 'checkbox',
-						'id': 'modal-hook-enabled',
-						'checked': isEnabled
-					}),
-					' ',
-					_('Enabled (executable)')
-				])
-			]),
 			E('div', { 'class': 'right' }, [
 				E('button', {
 					'class': 'btn cbi-button-negative',
@@ -85,26 +81,17 @@ return view.extend({
 				}, _('Save'))
 			])
 		]);
+		}, this));
 	},
 
 	handleHookSaveFromModal: function(filename, ev) {
 		var textarea = document.getElementById('modal-hook-content');
-		var enabledCheckbox = document.getElementById('modal-hook-enabled');
 		var content = (textarea.value || '').trim().replace(/\r\n/g, '\n') + '\n';
-		var shouldBeEnabled = enabledCheckbox.checked;
 		var filepath = hooksPath + '/' + filename;
 
 		return fs.write(filepath, content).then(function() {
-			return fs.exec('/bin/chmod', [shouldBeEnabled ? '+x' : '-x', filepath]);
-		}).then(function() {
 			ui.hideModal();
 			ui.addNotification(null, E('p', _('Hook "%s" saved.').format(filename)), 'info');
-			// Update grid row
-			var statusBadge = document.querySelector('[data-hook="' + CSS.escape(filename) + '"] .hook-status');
-			if (statusBadge) {
-				statusBadge.textContent = shouldBeEnabled ? _('Enabled') : _('Disabled');
-				statusBadge.className = 'hook-status label ' + (shouldBeEnabled ? 'success' : '');
-			}
 		}).catch(function(e) {
 			ui.addNotification(null, E('p', _('Unable to save hook: %s').format(e.message)));
 		});
@@ -144,8 +131,6 @@ return view.extend({
 		var filepath = hooksPath + '/' + filename;
 
 		return fs.write(filepath, hookTemplate).then(function() {
-			return fs.exec('/bin/chmod', ['+x', filepath]);
-		}).then(function() {
 			nameInput.value = '';
 			ui.addNotification(null, E('p', _('Hook "%s" created. Reload page to edit.').format(filename)), 'info');
 		}).catch(function(e) {
@@ -153,21 +138,15 @@ return view.extend({
 		});
 	},
 
-	renderHookRow: function(file, content) {
+	renderHookRow: function(file) {
 		var filename = file.name;
-		var isEnabled = !!(file.mode & 0o100);
 
 		return E('tr', { 'class': 'tr', 'data-hook': filename }, [
 			E('td', { 'class': 'td' }, filename),
-			E('td', { 'class': 'td' }, [
-				E('span', {
-					'class': 'hook-status label ' + (isEnabled ? 'success' : '')
-				}, isEnabled ? _('Enabled') : _('Disabled'))
-			]),
 			E('td', { 'class': 'td cbi-section-actions' }, [
 				E('button', {
 					'class': 'btn cbi-button-edit',
-					'click': ui.createHandlerFn(this, 'handleHookEdit', filename, content, isEnabled),
+					'click': ui.createHandlerFn(this, 'handleHookEdit', filename),
 					'title': _('Edit')
 				}, _('Edit'))
 			])
@@ -179,6 +158,7 @@ return view.extend({
 		var hookFiles = (data[2] || []).filter(function(f) {
 			return f.name !== systemHook && f.type === 'file';
 		});
+		var interfaces = data[3] || [];
 		var scriptSections = uci.sections('ha-cluster', 'script') || [];
 		var m, s, o;
 		var self = this;
@@ -196,7 +176,7 @@ return view.extend({
 		};
 
 		m = new form.Map('ha-cluster', _('High Availability - Advanced VRRP'),
-			_('Advanced VRRP tuning. Interface, IP, Netmask, and VRID are in General.'));
+			_('Advanced VRRP instance tuning. VIPs and instance assignment are in General.'));
 
 		// === Global Settings ===
 		s = m.section(form.TypedSection, 'advanced', _('Global Settings'),
@@ -234,10 +214,10 @@ return view.extend({
 		o.depends('enable_notifications', '1');
 		o.placeholder = '192.168.1.100';
 
-		// === Virtual IP Addresses ===
-		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
-			_('Click Edit for advanced settings.'));
-		s.anonymous = true;
+		// === VRRP Instances ===
+		s = m.section(form.GridSection, 'vrrp_instance', _('VRRP Instances'),
+			_('Instances are auto-created by the General page (one per interface, named &lt;iface&gt;_1). Add &lt;iface&gt;_2 here for independent failover groups on the same interface.'));
+		s.anonymous = false;
 		s.addremove = true;
 		s.sortable = true;
 		s.tab('timing', _('Timing'));
@@ -245,24 +225,62 @@ return view.extend({
 		s.tab('tracking', _('Tracking'));
 		s.tab('unicast', _('Unicast'));
 
-		o = s.option(form.DummyValue, '_interface', _('Interface'));
+		o = s.option(form.DummyValue, '_instance_display', _('Instance'));
 		o.textvalue = function(section_id) {
 			var ifname = uci.get('ha-cluster', section_id, 'interface') || '';
-			var vipname = section_id || '';
+			var vrid = uci.get('ha-cluster', section_id, 'vrid') || '?';
 			return E('span', {}, [
 				E('img', { 'src': ifaceIconUrl(ifname), 'style': 'width:24px;height:24px;vertical-align:middle;margin-right:6px' }),
-				E('span', {}, (vipname ? vipname + ' ' : '') + (ifname ? '(' + ifname + ')' : '-'))
+				E('span', {}, section_id + ' (VRID ' + vrid + ', ' + (ifname || '-') + ')')
 			]);
 		};
 		o.modalonly = false;
 
-		o = s.option(form.DummyValue, '_address', _('Virtual IP Address'));
+		o = s.option(form.DummyValue, '_vip_count', _('VIPs'));
 		o.textvalue = function(section_id) {
-			var addr = uci.get('ha-cluster', section_id, 'address') || '';
-			var addr6 = uci.get('ha-cluster', section_id, 'address6') || '';
-			if (addr && addr6)
-				return addr + ', ' + addr6;
-			return addr || addr6 || '-';
+			var count = uci.sections('ha-cluster', 'vip').filter(function(vip) {
+				return vip.vrrp_instance === section_id;
+			}).length;
+			return String(count);
+		};
+		o.modalonly = false;
+
+		o = s.option(form.Value, 'vrid', _('VRID'),
+			_('Virtual Router ID (1-127). 128-255 reserved for auto-generated IPv6 instances.'));
+		o.datatype = 'range(1,127)';
+		o.rmempty = false;
+		o.validate = function(section_id, value) {
+			if (!value) return true;
+			var vrid = parseInt(value);
+			var instances = uci.sections('ha-cluster', 'vrrp_instance');
+			for (var i = 0; i < instances.length; i++) {
+				if (instances[i]['.name'] === section_id) continue;
+				if (parseInt(instances[i].vrid) === vrid)
+					return _('VRID %d is already used by instance "%s"').format(vrid, instances[i]['.name']);
+			}
+			return true;
+		};
+
+		o = s.option(form.ListValue, 'interface', _('Primary Interface'),
+			_('Interface used for VRRP advertisements.'));
+		o.rmempty = false;
+		if (interfaces && interfaces.length) {
+			var seen3 = {};
+			interfaces.forEach(function(iface) {
+				if (iface.interface && iface.interface !== 'loopback') {
+					var ifname = iface.interface;
+					if (seen3[ifname]) return;
+					seen3[ifname] = true;
+					o.value(ifname, ifname);
+				}
+			});
+		}
+		o.cfgvalue = function(section_id) {
+			var ifname = uci.get('ha-cluster', section_id, 'interface');
+			if (ifname && !(this.keylist || []).includes(ifname)) {
+				this.value(ifname, ifname);
+			}
+			return ifname;
 		};
 
 		// === Timing Tab ===
@@ -273,8 +291,8 @@ return view.extend({
 		o.default = '1';
 		o.modalonly = true;
 
-		o = s.taboption('timing', form.Value, 'priority', _('VIP-Specific Priority'),
-			_('Override global priority for this VIP. Leave empty for global priority.'));
+		o = s.taboption('timing', form.Value, 'priority', _('Priority'),
+			_('Override global priority for this instance. Leave empty for global priority.'));
 		o.datatype = 'range(1,255)';
 		o.placeholder = _('Use global priority');
 		o.optional = true;
@@ -345,15 +363,33 @@ return view.extend({
 		o.modalonly = true;
 
 		// === Unicast Tab ===
+		// Compute auto-derived unicast values from peer config
+		var peers = uci.sections('ha-cluster', 'peer');
+		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
+		var autoSrcIp = '';
+		var autoPeerAddrs = [];
+		for (var pi = 0; pi < peers.length; pi++) {
+			if (peers[pi].address)
+				autoPeerAddrs.push(peers[pi].address);
+			if (!autoSrcIp && peers[pi].source_address)
+				autoSrcIp = peers[pi].source_address;
+		}
+
 		o = s.taboption('unicast', form.Value, 'unicast_src_ip', _('Unicast Source IP'),
-			_('This router\'s IP for unicast VRRP. Leave empty for multicast (default).'));
+			(transport === 'unicast' && autoSrcIp)
+				? _('Per-instance override. When empty, auto-derived from peer config: %s').format(autoSrcIp)
+				: _('This router\'s IP for unicast VRRP. Leave empty for multicast (default).'));
 		o.datatype = 'ipaddr';
-		o.placeholder = _('e.g., 192.168.1.1');
+		o.placeholder = (transport === 'unicast' && autoSrcIp)
+			? _('Auto: %s').format(autoSrcIp)
+			: _('e.g., 192.168.1.1');
 		o.optional = true;
 		o.modalonly = true;
 
 		o = s.taboption('unicast', form.DynamicList, 'unicast_peer', _('Unicast Peer IPs'),
-			_('Peer router IPs. Required when using unicast mode. Both src_ip and peer must be set.'));
+			(transport === 'unicast' && autoPeerAddrs.length > 0)
+				? _('Per-instance override. When empty, auto-derived from peer config: %s').format(autoPeerAddrs.join(', '))
+				: _('Peer router IPs. Required when using unicast mode. Both src_ip and peer must be set.'));
 		o.datatype = 'ipaddr';
 		o.placeholder = _('e.g., 192.168.1.2');
 		o.modalonly = true;
@@ -419,61 +455,51 @@ return view.extend({
 
 		// Render form.Map, then append hooks section
 		return m.render().then(L.bind(function(mapEl) {
-			// Load hook file contents
-			var readPromises = hookFiles.map(function(file) {
-				return L.resolveDefault(fs.read(hooksPath + '/' + file.name), '').then(function(content) {
-					return { file: file, content: content };
-				});
-			});
+			// Build hooks section with grid
+			var hooksTable = E('table', { 'class': 'table cbi-section-table' }, [
+				E('tr', { 'class': 'tr table-titles' }, [
+					E('th', { 'class': 'th' }, _('Name')),
+					E('th', { 'class': 'th cbi-section-actions' }, '')
+				])
+			]);
 
-			return Promise.all(readPromises).then(L.bind(function(hooks) {
-				// Build hooks section with grid
-				var hooksTable = E('table', { 'class': 'table cbi-section-table' }, [
-					E('tr', { 'class': 'tr table-titles' }, [
-						E('th', { 'class': 'th' }, _('Name')),
-						E('th', { 'class': 'th' }, _('Status')),
-						E('th', { 'class': 'th cbi-section-actions' }, '')
-					])
-				]);
-
-				var tbody = E('tbody', { 'id': 'hooks-tbody' });
-				hooks.forEach(L.bind(function(h) {
-					tbody.appendChild(this.renderHookRow(h.file, h.content));
-				}, this));
-
-				if (hooks.length === 0) {
-					tbody.appendChild(E('tr', { 'class': 'tr placeholder' }, [
-						E('td', { 'class': 'td', 'colspan': '3', 'style': 'text-align: center; font-style: italic; color: #888;' },
-							_('No custom hooks defined.'))
-					]));
-				}
-
-				hooksTable.appendChild(tbody);
-
-				var hooksContainer = E('div', { 'class': 'cbi-section' }, [
-					E('h3', {}, _('State Change Hooks')),
-					E('div', { 'class': 'cbi-section-descr' },
-						_('Shell scripts executed on VRRP state changes. Click Edit to modify. Environment: $ACTION, $NAME, $TYPE.')),
-					hooksTable,
-					E('div', { 'class': 'cbi-section-create' }, [
-						E('div', {}, [
-							E('input', {
-								'type': 'text',
-								'class': 'cbi-section-create-name',
-								'id': 'new-hook-name',
-								'placeholder': _('e.g., 60-vpn-failover')
-							})
-						]),
-						E('button', {
-							'class': 'cbi-button cbi-button-add',
-							'click': ui.createHandlerFn(this, 'handleHookAdd')
-						}, _('Add'))
-					])
-				]);
-
-				mapEl.appendChild(hooksContainer);
-				return mapEl;
+			var tbody = E('tbody', { 'id': 'hooks-tbody' });
+			hookFiles.forEach(L.bind(function(file) {
+				tbody.appendChild(this.renderHookRow(file));
 			}, this));
+
+			if (hookFiles.length === 0) {
+				tbody.appendChild(E('tr', { 'class': 'tr placeholder' }, [
+					E('td', { 'class': 'td', 'colspan': '2', 'style': 'text-align: center; font-style: italic; color: #888;' },
+						_('No custom hooks defined.'))
+				]));
+			}
+
+			hooksTable.appendChild(tbody);
+
+			var hooksContainer = E('div', { 'class': 'cbi-section' }, [
+				E('h3', {}, _('State Change Hooks')),
+				E('div', { 'class': 'cbi-section-descr' },
+					_('Shell scripts executed on VRRP state changes. Click Edit to modify. Environment: $ACTION, $NAME, $TYPE.')),
+				hooksTable,
+				E('div', { 'class': 'cbi-section-create' }, [
+					E('div', {}, [
+						E('input', {
+							'type': 'text',
+							'class': 'cbi-section-create-name',
+							'id': 'new-hook-name',
+							'placeholder': _('e.g., 60-vpn-failover')
+						})
+					]),
+					E('button', {
+						'class': 'cbi-button cbi-button-add',
+						'click': ui.createHandlerFn(this, 'handleHookAdd')
+					}, _('Add'))
+				])
+			]);
+
+			mapEl.appendChild(hooksContainer);
+			return mapEl;
 		}, this));
 	}
 });
