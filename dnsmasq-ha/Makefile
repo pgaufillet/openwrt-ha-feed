@@ -41,7 +41,6 @@ define Package/dnsmasq-ha
   URL:=http://www.thekelleys.org.uk/dnsmasq/
   DEPENDS:=+libubus +libnettle +kmod-ipt-ipset +libnetfilter-conntrack +nftables-json
   PROVIDES:=dnsmasq
-  CONFLICTS:=dnsmasq dnsmasq-full
   USERID:=dnsmasq=453:dnsmasq=453
 endef
 

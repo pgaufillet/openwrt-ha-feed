@@ -6,9 +6,11 @@ Web interface for managing High Availability clusters on OpenWrt.
 
 ### Quick Setup Tab
 - Simple multi-router HA configuration (2 or more nodes)
-- Node name and priority configuration
+- Priority configuration
 - Peer router management
-- Virtual IP (VIP) configuration per interface
+- VRRP instance management (VIPs grouped by instance fail over atomically)
+- Virtual IP (VIP) configuration per interface with instance selector
+- Inline VRRP instance creation from VIP modal ("Add new..." option)
 - Service synchronization selection
 - One-click enable/disable
 
@@ -21,7 +23,7 @@ Web interface for managing High Availability clusters on OpenWrt.
 - Auto-refresh every 5 seconds
 
 ### Advanced Pages
-- **Keepalived (Advanced)**: VRRP timing/auth/tracking/unicast and health checks
+- **Keepalived (Advanced)**: VRRP instance tuning (timing/auth/tracking/unicast) and health checks
 - **owsync (Advanced)**: Custom sync groups, exclusions, poll interval
 - **DHCP Sync (Advanced)**: lease-sync tuning and logging
 

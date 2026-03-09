@@ -82,21 +82,27 @@ opkg install lease-sync    # DHCP sync only
 Edit `/etc/config/ha-cluster`:
 
 ```
-config global
+config global 'config'
     option enabled '1'
-    option node_name 'router1'
-    option priority '100'
+    option node_priority '100'
+    option encryption_key '0123456789abcdef...'  # 64 hex chars
 
 config peer
+    option name 'router2'
     option address '192.168.1.2'
 
-config vip
+config vrrp_instance 'main'
+    option vrid '51'
     option interface 'lan'
+    option priority '100'
+    option nopreempt '1'
+
+config vip 'lan'
+    option enabled '1'
+    option vrrp_instance 'main'
+    option interface 'br-lan'
     option address '192.168.1.254'
     option netmask '255.255.255.0'
-
-config security
-    option encryption_key '0123456789abcdef...'  # 64 hex chars
 ```
 
 Start the cluster:
@@ -108,12 +114,12 @@ Start the cluster:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        ha-cluster                           │
-│                    (Orchestration Layer)                    │
-└─────────┬──────────────────┬──────────────────┬─────────────┘
-          │                  │                  │
-          ▼                  ▼                  ▼
+┌───────────────────────────────────────────────────────┐
+│                      ha-cluster                       │
+│                  (Orchestration Layer)                │
+└───────┬──────────────────┬──────────────────┬─────────┘
+        │                  │                  │
+        ▼                  ▼                  ▼
 ┌─────────────────┐ ┌──────────────┐ ┌──────────────────┐
 │   keepalived    │ │   owsync     │ │   lease-sync     │
 │     (VRRP)      │ │ (Config Sync)│ │  (DHCP Sync)     │
@@ -243,6 +249,94 @@ make package/luci-app-ha-cluster/compile V=s
 Built `.ipk` files are output to `bin/packages/*/ha_feed/`.
 
 See `scripts/setup-openwrt-buildroot.sh --help` for options (custom OpenWrt version, config file, etc.).
+
+### Building and Hosting Your Own Package Repository
+
+If you want to serve pre-built packages to your routers without compiling on the router itself, you can create a signed opkg feed hosted on any HTTP server on your LAN (NAS, Raspberry Pi, etc.).
+
+#### 1. Build the Packages
+
+Follow the build environment setup above, then compile all packages:
+
+```bash
+cd ../openwrt
+make package/ha-cluster/compile
+make package/owsync/compile
+make package/lease-sync/compile
+make package/dnsmasq-ha/compile
+make package/luci-app-ha-cluster/compile
+```
+
+Built `.ipk` files are in `bin/packages/<arch>/ha_feed/` (e.g., `bin/packages/aarch64_cortex-a53/ha_feed/`).
+
+#### 2. Generate a Signing Key
+
+```bash
+# usign is built as part of the OpenWrt toolchain
+USIGN=staging_dir/host/bin/usign
+
+# Generate a keypair (do this once, keep the private key safe)
+$USIGN -G -p keys/ha_feed.pub -s keys/ha_feed.sec
+```
+
+#### 3. Generate and Sign the Package Index
+
+The OpenWrt buildroot has a built-in target that generates the package index (`Packages`, `Packages.gz`, `Packages.sig`, `index.json`) and signs it. Pass `BUILD_KEY` to use your feed signing key instead of the default build key:
+
+```bash
+make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
+```
+
+#### 4. Deploy to a Web Server
+
+Copy the `.ipk` files and index files to any directory served by an HTTP server:
+
+```bash
+FEED_DIR=bin/packages/<arch>/ha_feed
+scp $FEED_DIR/*.ipk $FEED_DIR/Packages $FEED_DIR/Packages.gz $FEED_DIR/Packages.sig $FEED_DIR/index.json myserver:/var/www/openwrt/ha_feed/
+```
+
+#### 5. Configure Routers to Use the Feed
+
+On each router:
+
+```bash
+# Add the feed
+echo "src/gz ha_feed http://myserver/openwrt/ha_feed" > /etc/opkg/customfeeds.conf
+
+# Install the signing public key
+# The key fingerprint is the filename under /etc/opkg/keys/
+FINGERPRINT=$(usign -F -p /path/to/ha_feed.pub)
+cp /path/to/ha_feed.pub /etc/opkg/keys/$FINGERPRINT
+
+# Update and install
+opkg update
+opkg install ha-cluster luci-app-ha-cluster
+```
+
+#### 6. Updating the Feed
+
+After rebuilding packages, repeat steps 3 and 4 to regenerate the index and redeploy. For example, to rebuild only `ha-cluster` and `luci-app-ha-cluster`:
+
+```bash
+make package/ha-cluster/compile V=s
+make package/luci-app-ha-cluster/compile V=s
+make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
+scp bin/packages/<arch>/ha_feed/* myserver:/var/www/openwrt/ha_feed/
+```
+
+On routers, run `opkg update` to pick up the new versions.
+
+**Note:** `dnsmasq-ha` replaces the stock `dnsmasq` package. On first install, you may need to remove `dnsmasq` manually before installing `dnsmasq-ha`:
+
+```bash
+# Save dnsmasq config, remove stock, install HA version
+cp /etc/config/dhcp /tmp/dhcp.bak
+opkg remove dnsmasq
+opkg install dnsmasq-ha
+cp /tmp/dhcp.bak /etc/config/dhcp
+/etc/init.d/dnsmasq restart
+```
 
 ## Maintainer
 
