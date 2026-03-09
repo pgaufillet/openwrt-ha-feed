@@ -69,4 +69,13 @@ define Package/owsync/conffiles
 /etc/owsync
 endef
 
+define Package/owsync/prerm
+#!/bin/sh
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	/etc/init.d/owsync stop >/dev/null 2>&1
+	/etc/init.d/owsync disable >/dev/null 2>&1
+fi
+exit 0
+endef
+
 $(eval $(call BuildPackage,owsync))

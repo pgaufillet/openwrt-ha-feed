@@ -49,6 +49,15 @@ define Package/ha-cluster/install
 
 endef
 
+define Package/ha-cluster/prerm
+#!/bin/sh
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	/etc/init.d/ha-cluster stop >/dev/null 2>&1
+	/etc/init.d/ha-cluster disable >/dev/null 2>&1
+fi
+exit 0
+endef
+
 define Package/ha-cluster/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || /etc/init.d/ha-cluster enable

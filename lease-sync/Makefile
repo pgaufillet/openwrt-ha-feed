@@ -62,6 +62,15 @@ define Package/lease-sync/install
 
 endef
 
+define Package/lease-sync/prerm
+#!/bin/sh
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	/etc/init.d/lease-sync stop >/dev/null 2>&1
+	/etc/init.d/lease-sync disable >/dev/null 2>&1
+fi
+exit 0
+endef
+
 define Package/lease-sync/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
