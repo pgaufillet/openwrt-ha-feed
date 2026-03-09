@@ -369,14 +369,20 @@ configure_node_from_env() {
         uci set ha-cluster.config.encryption_key='$TEST_KEY'
         uci set ha-cluster.config.sync_method='owsync'
 
+        # VRRP instance config
+        uci set ha-cluster.main=vrrp_instance
+        uci set ha-cluster.main.vrid='51'
+        uci set ha-cluster.main.interface='lan'
+        uci set ha-cluster.main.priority='$node_priority'
+        uci set ha-cluster.main.nopreempt='0'
+
         # VIP config
         uci set ha-cluster.lan=vip
         uci set ha-cluster.lan.enabled='1'
+        uci set ha-cluster.lan.vrrp_instance='main'
         uci set ha-cluster.lan.interface='lan'
         uci set ha-cluster.lan.address='$vip_addr'
         uci set ha-cluster.lan.netmask='$vip_mask'
-        uci set ha-cluster.lan.vrid='51'
-        uci set ha-cluster.lan.priority='$node_priority'
 
         # IPv6 VIP config (if available)
         if [ -n \"$vip6_addr\" ]; then

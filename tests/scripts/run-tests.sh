@@ -97,7 +97,7 @@ list_tests() {
 
     echo ""
     echo "Priority 3 (Nice to Have):"
-    for f in "$TEST_DIR/scenarios"/0[9]-*.sh "$TEST_DIR/scenarios"/1[0-9]-*.sh; do
+    for f in "$TEST_DIR/scenarios"/0[9]-*.sh "$TEST_DIR/scenarios"/[1-9][0-9]-*.sh; do
         [ -f "$f" ] && echo "  $(basename "$f" .sh)"
     done
 }

@@ -101,7 +101,8 @@ tests/
 │   ├── 16-ipv6-slaac-mode.sh       # T16: IPv6 SLAAC mode validation
 │   ├── 17-ipv6-network-partition.sh # T17: Network partition & split-brain
 │   ├── 18-ipv6-hybrid-dhcp.sh      # T18: Hybrid odhcpd/dnsmasq configuration
-│   └── 19-ipv6-stress.sh           # T19: IPv6 stress test (1000+ leases)
+│   ├── 19-ipv6-stress.sh           # T19: IPv6 stress test (1000+ leases)
+│   └── 20-no-lease-sync.sh        # T20: Operation without lease-sync
 │
 ├── lib/
 │   ├── common.sh                   # Core test utilities
@@ -375,6 +376,12 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 | T14 | IPv6 VIP | IPv6 VIP assignment and failover |
 | T15 | IPv6 Lease Sync | DHCPv6 lease sync, IAID/is_temporary field handling |
 | T16 | IPv6 SLAAC Mode | SLAAC works without lease sync (VIP failover sufficient) |
+
+### Priority 5 - Degraded Mode (T20)
+
+| ID | Scenario | Validates |
+|----|----------|-----------|
+| T20 | No Lease Sync | HA works without lease-sync installed |
 
 **Note:** T14-T16 run on the default dual-stack cluster.
 - T15 requires stateful DHCPv6 mode (test config default)
