@@ -235,7 +235,7 @@ numeric prefix above 50 (e.g. `60-vpn-failover`).
 Available environment variables:
 - `ACTION` — `MASTER`, `BACKUP`, `FAULT`, or `STOP`
 - `TYPE` — `INSTANCE`, `GROUP`, etc.
-- `NAME` — instance name (e.g. `VI_lan`)
+- `NAME` — instance name (e.g. `main`)
 
 ## Files
 
@@ -243,7 +243,6 @@ Available environment variables:
 /etc/config/ha-cluster                  UCI configuration
 /etc/init.d/ha-cluster                  procd init script (START=19, STOP=91)
 /usr/lib/ha-cluster/ha-cluster.sh       Core library
-/etc/hotplug.d/keepalived/50-ha-cluster Internal hotplug handler
 /tmp/ha-cluster/                        Generated configs (runtime)
 ```
 

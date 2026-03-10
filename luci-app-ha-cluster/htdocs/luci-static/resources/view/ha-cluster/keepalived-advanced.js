@@ -18,7 +18,7 @@ var callGetInterfaces = rpc.declare({
 });
 
 var hooksPath = '/etc/hotplug.d/keepalived';
-var systemHook = '50-ha-cluster';
+var systemHook = null;
 
 var hookTemplate = '#!/bin/sh\n' +
 	'# Keepalived state change hook\n' +
