@@ -133,9 +133,16 @@ return view.extend({
 			case 'FAULT':
 				roleClass = 'label important';
 				break;
+			case 'MIXED':
+				roleClass = 'label warning';
+				break;
 			default:
 				roleClass = 'label';
 		}
+
+		// Build per-instance role rows (shown when multiple instances exist)
+		var instances = status.instances || {};
+		var instanceNames = Object.keys(instances);
 
 		return [
 			E('h3', {}, _('Cluster Status')),
@@ -160,7 +167,23 @@ return view.extend({
 								E('span', { 'class': roleClass }, nodeRole)
 							])
 						])
-					])
+					].concat(instanceNames.length > 1 ? instanceNames.map(function(name) {
+						var instRole = instances[name];
+						var instClass;
+						switch (instRole) {
+							case 'MASTER': instClass = 'label success'; break;
+							case 'BACKUP': instClass = 'label notice'; break;
+							case 'FAULT':  instClass = 'label important'; break;
+							default:       instClass = 'label';
+						}
+						return E('tr', { 'class': 'tr' }, [
+							E('td', { 'class': 'td left', 'style': 'padding-left: 2em;' },
+								_('Instance: %s').format(name)),
+							E('td', { 'class': 'td left' }, [
+								E('span', { 'class': instClass }, instRole)
+							])
+						]);
+					}) : []))
 				]),
 				// Table 2: Last Synchronization
 				E('div', { 'class': 'cbi-section-node', 'style': 'flex: 1;' }, [

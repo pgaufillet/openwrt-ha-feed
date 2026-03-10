@@ -48,6 +48,7 @@ case "$1" in
 				services_ok=1
 				peers_online=0
 				peers_total=0
+				instance_roles=""
 
 				# Check if ha-cluster is enabled
 				ha_enabled=$(uci -q get ha-cluster.config.enabled)
@@ -59,9 +60,9 @@ case "$1" in
 					keepalived_data=$(ubus call keepalived dump 2>/dev/null)
 
 					if [ -n "$keepalived_data" ]; then
-						# Parse keepalived state using jshn (in subshell to avoid state pollution)
-						# Capture output and validate before using (avoid eval injection risk)
-						_parsed_role=$(
+						# Parse per-instance VRRP state (in subshell to avoid state pollution)
+						# Output format: instance_name:STATE per line
+						instance_roles=$(
 							. /usr/share/libubox/jshn.sh
 							json_load "$keepalived_data" 2>/dev/null || exit 1
 							json_select status 2>/dev/null || exit 1
@@ -70,39 +71,60 @@ case "$1" in
 							for instance in $instances; do
 								json_select "$instance" || continue
 
-								# First check the actual state field from keepalived
-								# Keepalived reports: MASTER, BACKUP, or FAULT
+								inst_role="UNKNOWN"
 								json_get_var vrrp_state state 2>/dev/null
 								if [ -n "$vrrp_state" ]; then
-									# Normalize state (keepalived uses uppercase)
 									case "$vrrp_state" in
-										[Mm][Aa][Ss][Tt][Ee][Rr]) echo "MASTER" ;;
-										[Bb][Aa][Cc][Kk][Uu][Pp]) echo "BACKUP" ;;
-										[Ff][Aa][Uu][Ll][Tt]) echo "FAULT" ;;
-										*) echo "UNKNOWN" ;;
+										[Mm][Aa][Ss][Tt][Ee][Rr]) inst_role="MASTER" ;;
+										[Bb][Aa][Cc][Kk][Uu][Pp]) inst_role="BACKUP" ;;
+										[Ff][Aa][Uu][Ll][Tt]) inst_role="FAULT" ;;
 									esac
-									break
-								fi
-
-								# Fallback: infer state from statistics if state field unavailable
-								json_select stats 2>/dev/null || continue
-								json_get_var become_master become_master
-								json_get_var release_master release_master
-
-								# Determine role: MASTER if become_master > release_master
-								if [ "$become_master" -gt "$release_master" ]; then
-									echo "MASTER"
 								else
-									echo "BACKUP"
+									# Fallback: infer state from statistics
+									json_select stats 2>/dev/null
+									if [ $? -eq 0 ]; then
+										json_get_var become_master become_master
+										json_get_var release_master release_master
+										if [ "$become_master" -gt "$release_master" ]; then
+											inst_role="MASTER"
+										else
+											inst_role="BACKUP"
+										fi
+										json_select ..
+									fi
 								fi
-								break
+
+								echo "$instance:$inst_role"
+								json_select ..
 							done
 						)
-						# Only accept known valid values (security: prevent injection)
-						case "$_parsed_role" in
-							MASTER|BACKUP|FAULT) node_role="$_parsed_role" ;;
-							*) node_role="UNKNOWN" ;;
-						esac
+
+						# Compute aggregate role from per-instance roles
+						has_fault=0
+						has_master=0
+						has_backup=0
+						instance_count=0
+						for entry in $instance_roles; do
+							role_val="${entry##*:}"
+							case "$role_val" in
+								FAULT) has_fault=1 ;;
+								MASTER) has_master=1 ;;
+								BACKUP) has_backup=1 ;;
+							esac
+							instance_count=$((instance_count + 1))
+						done
+
+						if [ "$has_fault" -eq 1 ]; then
+							node_role="FAULT"
+						elif [ "$has_master" -eq 1 ] && [ "$has_backup" -eq 0 ]; then
+							node_role="MASTER"
+						elif [ "$has_backup" -eq 1 ] && [ "$has_master" -eq 0 ]; then
+							node_role="BACKUP"
+						elif [ "$has_master" -eq 1 ] && [ "$has_backup" -eq 1 ]; then
+							node_role="MIXED"
+						elif [ "$instance_count" -eq 0 ]; then
+							node_role="UNKNOWN"
+						fi
 					else
 						node_role="FAULT"
 						services_ok=0
@@ -164,6 +186,20 @@ case "$1" in
 				# Build peer list and check connectivity in a single pass
 				json_init
 				json_add_string role "$node_role"
+
+				# Add per-instance roles
+				json_add_object instances
+				for entry in $instance_roles; do
+					inst_name="${entry%%:*}"
+					inst_role="${entry##*:}"
+					# Validate values
+					case "$inst_role" in
+						MASTER|BACKUP|FAULT|UNKNOWN) ;;
+						*) inst_role="UNKNOWN" ;;
+					esac
+					json_add_string "$inst_name" "$inst_role"
+				done
+				json_close_object
 
 				json_add_array peers
 				for peer_section in $(uci show ha-cluster 2>/dev/null | grep "=peer$" | cut -d. -f2 | cut -d= -f1); do
