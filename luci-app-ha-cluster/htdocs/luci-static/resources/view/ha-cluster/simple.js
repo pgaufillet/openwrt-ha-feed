@@ -541,7 +541,7 @@ return view.extend({
 			o.rawhtml = true;
 			o.cfgvalue = function() {
 				return '<em>' + _('Install the <code>lease-sync</code> and <code>dnsmasq-ha</code> packages to enable real-time DHCP lease synchronization.') + '</em>' +
-					' <a href="/cgi-bin/luci/admin/system/opkg">' + _('Go to Software page') + ' \u2192</a>';
+					' <a href="/cgi-bin/luci/admin/system/package-manager">' + _('Go to Software page') + ' \u2192</a>';
 			};
 		}
 

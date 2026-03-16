@@ -29,7 +29,7 @@ SKIP_BUILD=false
 FORCE_REBUILD=false
 
 # OpenWrt rootfs URL (update version as needed)
-OPENWRT_VERSION="24.10.5"
+OPENWRT_VERSION="25.12.0"
 OPENWRT_ROOTFS_URL="https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-${OPENWRT_VERSION}-x86-64-rootfs.tar.gz"
 OPENWRT_ROOTFS_FILE="openwrt-x86-64-generic-rootfs.tar.gz"
 
@@ -134,9 +134,9 @@ ensure_packages() {
     mkdir -p "$pkg_dir"
 
     # Check if packages exist
-    if ls "$pkg_dir"/*.ipk >/dev/null 2>&1; then
+    if ls "$pkg_dir"/*.apk >/dev/null 2>&1; then
         info "Using packages from $pkg_dir"
-        ls -la "$pkg_dir"/*.ipk
+        ls -la "$pkg_dir"/*.apk
         return 0
     fi
 
@@ -159,11 +159,11 @@ ensure_packages() {
     echo "   $pkg_dir/"
     echo ""
     echo "Required packages:"
-    echo "   - dnsmasq-ha_*.ipk"
-    echo "   - lease-sync_*.ipk"
-    echo "   - owsync_*.ipk"
-    echo "   - ha-cluster_*.ipk"
-    echo "   - luci-app-ha-cluster_*.ipk"
+    echo "   - dnsmasq-ha_*.apk"
+    echo "   - lease-sync_*.apk"
+    echo "   - owsync_*.apk"
+    echo "   - ha-cluster_*.apk"
+    echo "   - luci-app-ha-cluster_*.apk"
     echo ""
     exit 1
 }

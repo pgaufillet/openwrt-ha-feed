@@ -22,7 +22,7 @@ A high-availability solution for OpenWrt routers, providing automatic failover, 
 
 ## Requirements
 
-- **OpenWrt 24.10**
+- **OpenWrt 25.12**
 - **Two or more routers** on a shared network segment
 - **dnsmasq-ha** (for DHCP lease sync)
 
@@ -43,12 +43,12 @@ echo "src-git hacluster https://github.com/pgaufillet/openwrt-ha-feed.git" >> fe
 
 ```bash
 # Install the complete HA solution
-opkg update
-opkg install ha-cluster luci-app-ha-cluster
+apk update
+apk add ha-cluster luci-app-ha-cluster
 
 # Or install individual components
-opkg install owsync        # Config sync only
-opkg install lease-sync    # DHCP sync only
+apk add owsync        # Config sync only
+apk add lease-sync    # DHCP sync only
 ```
 
 ## Quick Start
@@ -59,8 +59,8 @@ opkg install lease-sync    # DHCP sync only
 
 1. Install packages:
    ```bash
-   opkg update
-   opkg install ha-cluster luci-app-ha-cluster
+   apk update
+   apk add ha-cluster luci-app-ha-cluster
    ```
 
 2. Open LuCI: **Services → High Availability → Quick Setup**
@@ -234,7 +234,7 @@ logread | grep -E "(ha-cluster|keepalived|owsync|lease-sync)"
 A setup script is provided to clone and configure an OpenWrt buildroot for compiling the feed packages:
 
 ```bash
-# Default setup (OpenWrt 24.10.5, x86_64 config)
+# Default setup (OpenWrt 25.12.0, x86_64 config)
 scripts/setup-openwrt-buildroot.sh ../openwrt
 
 # Build all packages
@@ -246,13 +246,13 @@ make package/dnsmasq-ha/compile V=s
 make package/luci-app-ha-cluster/compile V=s
 ```
 
-Built `.ipk` files are output to `bin/packages/*/ha_feed/`.
+Built `.apk` files are output to `bin/packages/*/ha_feed/`.
 
 See `scripts/setup-openwrt-buildroot.sh --help` for options (custom OpenWrt version, config file, etc.).
 
 ### Building and Hosting Your Own Package Repository
 
-If you want to serve pre-built packages to your routers without compiling on the router itself, you can create a signed opkg feed hosted on any HTTP server on your LAN (NAS, Raspberry Pi, etc.).
+If you want to serve pre-built packages to your routers without compiling on the router itself, you can create a signed apk feed hosted on any HTTP server on your LAN (NAS, Raspberry Pi, etc.).
 
 #### 1. Build the Packages
 
@@ -267,7 +267,7 @@ make package/dnsmasq-ha/compile
 make package/luci-app-ha-cluster/compile
 ```
 
-Built `.ipk` files are in `bin/packages/<arch>/ha_feed/` (e.g., `bin/packages/aarch64_cortex-a53/ha_feed/`).
+Built `.apk` files are in `bin/packages/<arch>/ha_feed/` (e.g., `bin/packages/aarch64_cortex-a53/ha_feed/`).
 
 #### 2. Generate a Signing Key
 
@@ -289,11 +289,11 @@ make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
 
 #### 4. Deploy to a Web Server
 
-Copy the `.ipk` files and index files to any directory served by an HTTP server:
+Copy the `.apk` files and index files to any directory served by an HTTP server:
 
 ```bash
 FEED_DIR=bin/packages/<arch>/ha_feed
-scp $FEED_DIR/*.ipk $FEED_DIR/Packages $FEED_DIR/Packages.gz $FEED_DIR/Packages.sig $FEED_DIR/index.json myserver:/var/www/openwrt/ha_feed/
+scp $FEED_DIR/*.apk $FEED_DIR/Packages $FEED_DIR/Packages.gz $FEED_DIR/Packages.sig $FEED_DIR/index.json myserver:/var/www/openwrt/ha_feed/
 ```
 
 #### 5. Configure Routers to Use the Feed
@@ -302,16 +302,16 @@ On each router:
 
 ```bash
 # Add the feed
-echo "src/gz ha_feed http://myserver/openwrt/ha_feed" > /etc/opkg/customfeeds.conf
+echo "src/gz ha_feed http://myserver/openwrt/ha_feed" > /etc/apk/customfeeds.conf
 
 # Install the signing public key
-# The key fingerprint is the filename under /etc/opkg/keys/
+# The key fingerprint is the filename under /etc/apk/keys/
 FINGERPRINT=$(usign -F -p /path/to/ha_feed.pub)
-cp /path/to/ha_feed.pub /etc/opkg/keys/$FINGERPRINT
+cp /path/to/ha_feed.pub /etc/apk/keys/$FINGERPRINT
 
 # Update and install
-opkg update
-opkg install ha-cluster luci-app-ha-cluster
+apk update
+apk add ha-cluster luci-app-ha-cluster
 ```
 
 #### 6. Updating the Feed
@@ -325,15 +325,15 @@ make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
 scp bin/packages/<arch>/ha_feed/* myserver:/var/www/openwrt/ha_feed/
 ```
 
-On routers, run `opkg update` to pick up the new versions.
+On routers, run `apk update` to pick up the new versions.
 
 **Note:** `dnsmasq-ha` replaces the stock `dnsmasq` package. On first install, you may need to remove `dnsmasq` manually before installing `dnsmasq-ha`:
 
 ```bash
 # Save dnsmasq config, remove stock, install HA version
 cp /etc/config/dhcp /tmp/dhcp.bak
-opkg remove dnsmasq
-opkg install dnsmasq-ha
+apk del dnsmasq
+apk add dnsmasq-ha
 cp /tmp/dhcp.bak /etc/config/dhcp
 /etc/init.d/dnsmasq restart
 ```

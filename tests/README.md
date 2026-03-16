@@ -24,7 +24,7 @@ keepalived, owsync, lease-sync, and ha-cluster integration.
 
 ### Pre-built Packages
 
-The test infrastructure requires pre-built HA packages (`.ipk` files).
+The test infrastructure requires pre-built HA packages (`.apk` files).
 
 **IMPORTANT: Packages must be rebuilt from current source code before running tests.**
 
@@ -47,7 +47,7 @@ make package/ha-cluster/compile V=s
 make package/luci-app-ha-cluster/compile V=s
 
 # 2. Copy to tests/packages/
-cp bin/packages/x86_64/ha-cluster/*.ipk /path/to/openwrt-ha-feed/tests/packages/
+cp bin/packages/x86_64/ha-cluster/*.apk /path/to/openwrt-ha-feed/tests/packages/
 
 # 3. Force rebuild of container images
 ./scripts/setup.sh --force-rebuild
@@ -114,7 +114,7 @@ tests/
 │   ├── run-tests.sh                # Execute test suite
 │   └── teardown.sh                 # Cleanup
 │
-├── packages/                       # Pre-built .ipk files (gitignored)
+├── packages/                       # Pre-built .apk files (gitignored)
 ├── images/                         # OpenWrt rootfs (gitignored)
 ├── data/                           # Runtime state (gitignored)
 ├── logs/                           # Test logs (gitignored)
@@ -171,7 +171,7 @@ The container goes through 5 distinct stages to reach a "running OpenWrt" state:
 │ STAGE 1: IMAGE BUILD (Containerfile.node)                                   │
 │ ─────────────────────────────────────────                                   │
 │ • FROM scratch + OpenWrt rootfs tarball                                     │
-│ • opkg install: keepalived, HA packages                                     │
+│ • apk add: keepalived, HA packages                                     │
 │ • Disable DNSSEC, procd jail                                                │
 │ • Copy entrypoint.sh into image                                             │
 │ Output: ha-cluster-node:latest image                                        │
@@ -252,7 +252,7 @@ process (e.g., `tail -f /dev/null`) doesn't implement `wait()` to reap children.
 | **Firewall (fw4)** | nftables | nftables | ✅ Yes |
 | **File Persistence** | Flash/overlay | Volume mounts | ⚠️ Partial |
 | **Boot Sequence** | /etc/rc.d/* | procd boot | ✅ Yes |
-| **Package Installation** | opkg at runtime | opkg at image build | ⚠️ Partial |
+| **Package Installation** | apk at runtime | apk at image build | ⚠️ Partial |
 | **Syslog** | logd/logread | logd/logread | ✅ Yes |
 | **Watchdog** | Hardware watchdog | None | ❌ No |
 
@@ -286,12 +286,12 @@ from environment variables, allowing dynamic configuration without rebuilding im
 
 | Package | Purpose |
 |---------|---------|
-| `dnsmasq-ha_*.ipk` | Patched dnsmasq with add_lease/delete_lease ubus |
-| `lease-sync_*.ipk` | DHCP lease synchronization daemon |
-| `owsync_*.ipk` | Configuration file synchronization daemon |
-| `ha-cluster_*.ipk` | Orchestrator scripts (ha-cluster.sh, init, notify) |
-| `luci-app-ha-cluster_*.ipk` | Web UI (not used in tests) |
-| `keepalived` | From OpenWrt feeds (installed via opkg) |
+| `dnsmasq-ha_*.apk` | Patched dnsmasq with add_lease/delete_lease ubus |
+| `lease-sync_*.apk` | DHCP lease synchronization daemon |
+| `owsync_*.apk` | Configuration file synchronization daemon |
+| `ha-cluster_*.apk` | Orchestrator scripts (ha-cluster.sh, init, notify) |
+| `luci-app-ha-cluster_*.apk` | Web UI (not used in tests) |
+| `keepalived` | From OpenWrt feeds (installed via apk) |
 
 #### Environment Variables (from docker-compose.yml)
 
@@ -619,7 +619,7 @@ If tests fail with unexpected behavior (especially T05 lease sync), packages may
 
 **Check package build date:**
 ```bash
-ls -la packages/*.ipk
+ls -la packages/*.apk
 ```
 
 **Verify binary matches source code:**

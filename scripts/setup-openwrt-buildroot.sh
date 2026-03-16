@@ -21,7 +21,7 @@ set -e
 # Configuration
 # ============================================
 
-DEFAULT_TAG="v24.10.5"
+DEFAULT_TAG="v25.12.0"
 OPENWRT_REPO="https://github.com/openwrt/openwrt.git"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
