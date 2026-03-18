@@ -160,6 +160,62 @@ test_owsync_rpcd_status() {
     done
 }
 
+test_dnsmasq_ha_overlay() {
+    subheader "Dnsmasq HA Overlay"
+
+    for node in "$NODE1" "$NODE2"; do
+        # Determine dnsmasq's actual conf-dir from the generated config
+        local confdir
+        confdir=$(exec_node "$node" sh -c 'grep "^conf-dir=" /var/etc/dnsmasq.conf.* 2>/dev/null | head -1 | cut -d= -f2 | cut -d, -f1')
+        if [ -z "$confdir" ]; then
+            confdir="/tmp/dnsmasq.d"
+            warn "Could not determine dnsmasq confdir on $node, using default"
+        fi
+        info "dnsmasq confdir on $node: $confdir"
+
+        # Verify overlay file exists in the correct conf-dir
+        local overlay_path="$confdir/ha-cluster.conf"
+        if exec_node "$node" test -f "$overlay_path" 2>/dev/null; then
+            pass "HA overlay file exists on $node ($overlay_path)"
+        else
+            fail "HA overlay file missing on $node ($overlay_path)"
+            info "Contents of $confdir:"
+            exec_node "$node" ls -la "$confdir" 2>/dev/null || echo "(directory not found)"
+            return 1
+        fi
+
+        # Verify overlay contains script-on-renewal
+        local overlay_content
+        overlay_content=$(exec_node "$node" cat "$overlay_path" 2>/dev/null)
+        if echo "$overlay_content" | grep -q "script-on-renewal"; then
+            pass "Overlay contains script-on-renewal on $node"
+        else
+            fail "Overlay missing script-on-renewal on $node"
+            info "Overlay content: $overlay_content"
+            return 1
+        fi
+
+        # Verify force=1 is set on VIP interfaces (required for lease-sync)
+        local force_val
+        force_val=$(uci_get "$node" "dhcp.lan.force" 2>/dev/null)
+        if [ "$force_val" = "1" ]; then
+            pass "dhcp.lan.force=1 set on $node (required for HA lease sync)"
+        else
+            fail "dhcp.lan.force not set on $node (ubus add_lease needs DHCP initialized)"
+            return 1
+        fi
+
+        # Verify dnsmasq config actually includes conf-dir
+        local dnsmasq_conf
+        dnsmasq_conf=$(exec_node "$node" sh -c 'grep "^conf-dir=" /var/etc/dnsmasq.conf.* 2>/dev/null | head -1')
+        if [ -n "$dnsmasq_conf" ]; then
+            pass "dnsmasq config uses conf-dir on $node"
+        else
+            warn "Cannot confirm conf-dir in dnsmasq config on $node"
+        fi
+    done
+}
+
 test_nodes_connectivity() {
     subheader "Inter-Node Connectivity"
 
@@ -202,6 +258,7 @@ main() {
     # Non-fatal: lease-sync may not run if sync_leases is disabled in ha-cluster config
     run_nonfatal test_lease_sync_running "optional service - depends on sync_leases config"
 
+    test_dnsmasq_ha_overlay || return 1
     test_nodes_connectivity || return 1
 
     return 0
