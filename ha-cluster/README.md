@@ -112,6 +112,28 @@ uci commit ha-cluster
 
 Repeat on each peer node with the appropriate priority and peer addresses.
 
+## DHCP Prerequisites
+
+When using lease sync (`sync_leases='1'`), each VIP interface must have
+`force=1` in its DHCP configuration:
+
+```sh
+uci set dhcp.lan.force='1'
+uci commit dhcp
+```
+
+**Why?** Without `force=1`, dnsmasq detects the peer's DHCP server on the
+same network and disables its own DHCP service on that interface. This
+prevents the ubus `add_lease` method from working — lease-sync cannot
+inject leases into a node whose DHCP subsystem is not initialized. DNS
+resolution for local hostnames would fail on the BACKUP node.
+
+ha-cluster validates this at startup and refuses to start if `force=1` is
+missing on any VIP interface with lease sync enabled.
+
+Only set `force=1` on interfaces where you need HA DHCP. Other interfaces
+(management networks, etc.) retain normal dhcp_check protection.
+
 ## UCI Configuration
 
 All configuration lives in `/etc/config/ha-cluster`.

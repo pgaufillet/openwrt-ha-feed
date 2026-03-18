@@ -784,7 +784,56 @@ ha_validate_config() {
 		ha_log_warning "No peers configured - HA will not function"
 	}
 
+	# When lease sync is enabled, VIP interfaces need dhcp.*.force=1
+	# so that dnsmasq initializes DHCP (required for ubus add_lease).
+	# Without it, the BACKUP node cannot receive synced leases.
+	local lease_sync_enabled
+	config_get_bool lease_sync_enabled dhcp sync_leases 0
+	if [ "$lease_sync_enabled" -eq 1 ]; then
+		_ha_dhcp_force_checked=""
+		config_foreach _ha_check_dhcp_force vip
+	fi
+
 	return $errors
+}
+
+# Check that each enabled VIP interface has force=1 in its dhcp section
+_ha_dhcp_force_checked=""
+_ha_check_dhcp_force() {
+	local section="$1"
+	local vip_enabled interface
+
+	config_get_bool vip_enabled "$section" enabled 0
+	[ "$vip_enabled" -eq 0 ] && return 0
+
+	config_get interface "$section" interface ""
+	[ -z "$interface" ] && return 0
+
+	# Skip already-checked interfaces (multiple VIPs on same interface)
+	echo "$_ha_dhcp_force_checked" | grep -qw "$interface" && return 0
+	_ha_dhcp_force_checked="$_ha_dhcp_force_checked $interface"
+
+	# Find the dhcp pool section (type=dhcp) for this interface.
+	# Must exclude dnsmasq sections which also have an 'interface' option.
+	local dhcp_section force
+	dhcp_section=""
+	local _s
+	for _s in $(uci show dhcp 2>/dev/null | grep '=dhcp$' | cut -d. -f2 | cut -d= -f1); do
+		local _iface
+		_iface=$(uci -q get "dhcp.$_s.interface")
+		if [ "$_iface" = "$interface" ]; then
+			dhcp_section="$_s"
+			break
+		fi
+	done
+	[ -z "$dhcp_section" ] && return 0  # No DHCP pool on this interface, nothing to check
+
+	force=$(uci -q get "dhcp.$dhcp_section.force")
+	if [ "$force" != "1" ]; then
+		ha_log_error "dhcp.$dhcp_section.force must be '1' for HA lease sync on interface '$interface'"
+		ha_log_error "Set it with: uci set dhcp.$dhcp_section.force='1' && uci commit dhcp"
+		errors=$((errors + 1))
+	fi
 }
 
 ha_check_vrid_unique() {
@@ -866,119 +915,76 @@ ha_manage_services() {
 	fi
 }
 
-# State file for DHCP force settings (same pattern as service_states)
-# Format: dhcp_section=previous_value (one per line)
-# previous_value is empty string if option didn't exist, or "1" if it was set
-HA_DHCP_FORCE_STATE="/etc/ha-cluster/dhcp_force_states"
+# dnsmasq conf-dir overlay for HA operation
+# ha-cluster drops a config file into dnsmasq's conf-dir to enable HA-required
+# options at runtime, without modifying /etc/config/dhcp.
+# dnsmasq-ha's init script detects this file and skips the dhcp_check probe,
+# allowing both HA nodes to serve DHCP simultaneously.
+HA_DNSMASQ_OVERLAY_NAME="ha-cluster.conf"
 
-# Sets dhcp.<section>.force='1' for all interfaces with VIPs
-# Saves previous state to restore later
-ha_configure_dhcp_force() {
-	local dhcp_enabled lease_sync_enabled
+# Resolve dnsmasq's conf-dir path from UCI
+# The conf-dir path depends on the dnsmasq section name (e.g., cfg01411c)
+# matching the logic in dnsmasq's init script.
+_ha_dnsmasq_confdir=""
+_ha_resolve_dnsmasq_confdir_cb() {
+	local cfg="$1"
+	[ -n "$_ha_dnsmasq_confdir" ] && return 0
+	config_get _ha_dnsmasq_confdir "$cfg" confdir "/tmp/dnsmasq${cfg:+.$cfg}.d"
+	# Strip any filter suffixes (confdir supports ",*.ext" filters)
+	_ha_dnsmasq_confdir="${_ha_dnsmasq_confdir%%,*}"
+}
+
+ha_get_dnsmasq_confdir() {
+	config_load dhcp
+	_ha_dnsmasq_confdir=""
+	config_foreach _ha_resolve_dnsmasq_confdir_cb dnsmasq
+	echo "${_ha_dnsmasq_confdir:-/tmp/dnsmasq.d}"
+}
+
+# Writes the dnsmasq conf-dir overlay and restarts dnsmasq (at most once)
+ha_configure_dnsmasq() {
+	local lease_sync_enabled needs_restart=0
+	local confdir overlay_path
 
 	config_load ha-cluster
-	config_get_bool dhcp_enabled dhcp enabled 0
 	config_get_bool lease_sync_enabled dhcp sync_leases 0
 
-	# First, restore any previously modified interfaces
-	# This handles: VIP removed, reload, crash recovery
-	# Must be done BEFORE clearing state file and BEFORE checking enabled flags
-	# (so interfaces are restored even if DHCP sync is now disabled)
-	ha_release_dhcp_force
+	confdir="$(ha_get_dnsmasq_confdir)"
+	overlay_path="$confdir/$HA_DNSMASQ_OVERLAY_NAME"
 
-	[ "$dhcp_enabled" -eq 0 ] && return 0
-	[ "$lease_sync_enabled" -eq 0 ] && return 0
-
-	ha_log "Configuring DHCP force option for HA operation"
-
-	# Ensure directory exists (already done by ha_manage_services, but be safe)
-	mkdir -p /etc/ha-cluster
-
-	# Track processed interfaces to avoid duplicates
-	_ha_dhcp_force_processed=""
-
-	# Iterate over all vip sections to find VIP interfaces
-	config_foreach _ha_configure_dhcp_force_callback vip
-
-	# Commit if we made changes
-	[ -f "$HA_DHCP_FORCE_STATE" ] && [ -s "$HA_DHCP_FORCE_STATE" ] && {
-		uci commit dhcp
-		ha_log "DHCP force configuration saved"
-	}
-}
-
-# Callback for config_foreach to get interface from vip section
-_ha_configure_dhcp_force_callback() {
-	local section="$1"
-	local interface enabled
-
-	config_get_bool enabled "$section" enabled 0
-	[ "$enabled" -eq 0 ] && return 0
-
-	config_get interface "$section" interface
-	[ -z "$interface" ] && return 0
-
-	# Check if already processed (avoid duplicates)
-	echo "$_ha_dhcp_force_processed" | grep -qw "$interface" && return 0
-	_ha_dhcp_force_processed="$_ha_dhcp_force_processed $interface"
-
-	_ha_configure_dhcp_force_for_interface "$interface"
-}
-
-# Helper to process one VIP interface
-_ha_configure_dhcp_force_for_interface() {
-	local iface="$1"
-	local dhcp_section current_force
-
-	# Find the dhcp section for this interface
-	# uci show dhcp | grep "interface='lan'" returns "dhcp.lan.interface='lan'"
-	# Use -F for fixed-string matching to prevent regex injection via $iface
-	dhcp_section=$(uci show dhcp 2>/dev/null | grep -F ".interface='$iface'" | cut -d. -f2 | head -1)
-	[ -z "$dhcp_section" ] && {
-		ha_log_debug "No DHCP section found for interface $iface, skipping"
-		return 0
-	}
-
-	# Save current state (empty string if not set)
-	current_force=$(uci -q get "dhcp.$dhcp_section.force")
-
-	# Only modify if not already set to 1
-	if [ "$current_force" = "1" ]; then
-		ha_log_debug "dhcp.$dhcp_section.force already enabled"
-		# Don't save to state file - we didn't change it
-		return 0
+	if [ "$lease_sync_enabled" -eq 1 ]; then
+		mkdir -p "$confdir"
+		cat > "$overlay_path" <<-'EOF'
+			# Auto-generated by ha-cluster — do not edit
+			# Call dhcp-script on lease renewals so lease-sync can track expiry changes
+			script-on-renewal
+		EOF
+		needs_restart=1
+		ha_log "Wrote dnsmasq HA overlay to $overlay_path"
+	elif [ -f "$overlay_path" ]; then
+		# sync_leases disabled but stale overlay exists (reload or crash recovery)
+		rm -f "$overlay_path"
+		needs_restart=1
+		ha_log "Removed stale dnsmasq HA overlay"
 	fi
 
-	# Save previous state and set new value
-	echo "$dhcp_section=$current_force" >> "$HA_DHCP_FORCE_STATE"
-	uci set "dhcp.$dhcp_section.force=1"
-	ha_log "Enabled dhcp.$dhcp_section.force for HA operation"
+	[ "$needs_restart" -eq 1 ] && {
+		/etc/init.d/dnsmasq restart 2>/dev/null
+		ha_log "dnsmasq restarted"
+	}
 }
 
-# Reverts dhcp.*.force to previous state
-ha_release_dhcp_force() {
-	local dhcp_section previous_value
+# Removes the dnsmasq conf-dir overlay and restarts dnsmasq
+ha_release_dnsmasq() {
+	local confdir overlay_path
+	confdir="$(ha_get_dnsmasq_confdir)"
+	overlay_path="$confdir/$HA_DNSMASQ_OVERLAY_NAME"
 
-	[ ! -f "$HA_DHCP_FORCE_STATE" ] && return 0
+	[ ! -f "$overlay_path" ] && return 0
 
-	ha_log "Releasing DHCP force configuration"
-
-	while IFS='=' read -r dhcp_section previous_value; do
-		[ -z "$dhcp_section" ] && continue
-
-		if [ -z "$previous_value" ]; then
-			# Was not set before, delete it
-			uci -q delete "dhcp.$dhcp_section.force"
-			ha_log "Removed dhcp.$dhcp_section.force"
-		else
-			# Restore previous value
-			uci set "dhcp.$dhcp_section.force=$previous_value"
-			ha_log "Restored dhcp.$dhcp_section.force=$previous_value"
-		fi
-	done < "$HA_DHCP_FORCE_STATE"
-
-	uci commit dhcp
-	rm -f "$HA_DHCP_FORCE_STATE"
+	ha_log "Removing dnsmasq HA overlay"
+	rm -f "$overlay_path"
+	/etc/init.d/dnsmasq restart 2>/dev/null
 }
 
 # Apply all configurations
@@ -994,8 +1000,8 @@ ha_apply_config() {
 	# Take over service management from standalone init scripts
 	ha_manage_services "take_over"
 
-	# Configure DHCP force option for HA operation (allows DHCP servers on both nodes)
-	ha_configure_dhcp_force
+	# Configure dnsmasq for HA operation (conf-dir overlay + restart)
+	ha_configure_dnsmasq
 
 	# Generate configs - services will be started by ha-cluster init
 	ha_generate_keepalived_conf

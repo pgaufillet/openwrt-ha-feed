@@ -528,6 +528,64 @@ test_per_instance_unicast_override() {
 }
 
 # ============================================
+# Test Cases - Startup Validation
+# ============================================
+
+test_missing_force_rejected() {
+    subheader "Missing force=1 Rejected At Startup"
+
+    local node="$NODE1"
+
+    # Remove force=1 from dhcp config
+    exec_node "$node" uci delete dhcp.lan.force 2>/dev/null || true
+    exec_node "$node" uci -P /dev/null commit dhcp
+
+    # Stop ha-cluster
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+
+    # Try to start — should fail validation
+    start_ha_cluster "$node" 2>/dev/null || true
+    sleep 2
+
+    # Check that keepalived is NOT running (ha-cluster refused to start)
+    if service_running "$node" "keepalived"; then
+        fail "ha-cluster started despite missing force=1"
+        # Restore and restart
+        exec_node "$node" uci set dhcp.lan.force=1
+        exec_node "$node" uci -P /dev/null commit dhcp
+        stop_ha_cluster "$node" 2>/dev/null || true
+        wait_for_service_stopped "$node" "keepalived" 10
+        start_ha_cluster "$node" 2>/dev/null || true
+        wait_for_service "$node" "keepalived" 30
+        return 1
+    fi
+    pass "ha-cluster refused to start without force=1"
+
+    # Verify error message in logs
+    local log_output
+    log_output=$(exec_node "$node" logread 2>/dev/null | tail -20)
+    if echo "$log_output" | grep -q "force must be '1'"; then
+        pass "Error message mentions force=1 requirement"
+    else
+        fail "Expected error message about force=1 not found in logs"
+    fi
+
+    # Restore force=1 and restart
+    exec_node "$node" uci set dhcp.lan.force=1
+    exec_node "$node" uci -P /dev/null commit dhcp
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    if service_running "$node" "keepalived"; then
+        pass "ha-cluster starts after restoring force=1"
+    else
+        fail "ha-cluster failed to start after restoring force=1"
+        return 1
+    fi
+}
+
+# ============================================
 # Test Cases - Stale Config Cleanup
 # ============================================
 
@@ -773,6 +831,9 @@ main() {
     test_instance_without_vips_skipped || result=1
     test_multiple_instances_same_interface || result=1
     test_per_instance_unicast_override || result=1
+
+    # Validation tests
+    test_missing_force_rejected || result=1
 
     # Stale config cleanup tests (modify config, need cleanup)
     test_owsync_conf_removed_when_disabled || result=1

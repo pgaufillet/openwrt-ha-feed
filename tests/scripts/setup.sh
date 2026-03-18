@@ -484,8 +484,9 @@ start_services() {
         $CONTAINER_RUNTIME exec "$node" sh -c "
             uci set dhcp.@dnsmasq[0].interface='lan'
             uci set dhcp.@dnsmasq[0].localservice='0'
-            # Force DHCP server to start even if another DHCP server is detected
-            # This is required for HA where both nodes run dnsmasq as DHCP servers
+            # HA requires force=1 on DHCP interfaces with VIPs so that
+            # dnsmasq initializes DHCP even when another server is detected.
+            # Without it, ubus add_lease fails (daemon->dhcp is NULL).
             uci set dhcp.lan.force='1'
             uci commit dhcp
 

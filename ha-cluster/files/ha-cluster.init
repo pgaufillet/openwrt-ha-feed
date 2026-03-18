@@ -80,8 +80,8 @@ start_service() {
 stop_service() {
 	ha_log_info "Stopping HA cluster"
 
-	# Release DHCP force configuration
-	ha_release_dhcp_force
+	# Remove dnsmasq HA overlay and restart dnsmasq
+	ha_release_dnsmasq
 
 	# Release service management back to standalone init scripts
 	ha_manage_services "release"
