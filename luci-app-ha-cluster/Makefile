@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
+
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for HA Cluster
@@ -9,6 +12,6 @@ PKG_RELEASE:=1
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=Apache-2.0
 
-include ../../luci.mk
+include $(TOPDIR)/feeds/luci/luci.mk
 
 # call BuildPackage - OpenWrt buildroot signature

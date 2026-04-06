@@ -5,12 +5,12 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=lease-sync
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/pgaufillet/lease-sync.git
-PKG_SOURCE_VERSION:=v1.0.0
-PKG_MIRROR_HASH:=d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed
+PKG_SOURCE_VERSION:=f9ac7c66f888e49522c07b76c860f47e3a8a8359
+PKG_MIRROR_HASH:=skip
 
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=GPL-2.0-or-later
@@ -25,7 +25,7 @@ define Package/lease-sync
   CATEGORY:=Network
   SUBMENU:=IP Addresses and Names
   TITLE:=DHCP Lease Synchronization Daemon
-  DEPENDS:=+libubus +libubox +libpthread +libopenssl +dnsmasq
+  DEPENDS:=+libubus +libubox +libopenssl +dnsmasq-ha
 endef
 
 define Package/lease-sync/description
@@ -44,7 +44,7 @@ define Build/Compile
 		CC="$(TARGET_CC)" \
 		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" \
 		LDFLAGS="$(TARGET_LDFLAGS)" \
-		LIBS="-lubus -lubox -lpthread -lssl -lcrypto" \
+		LIBS="-lubus -lubox -lssl -lcrypto" \
 		STATEDIR="/etc/lease-sync"
 endef
 
@@ -78,8 +78,8 @@ define Package/lease-sync/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
 	/etc/init.d/lease-sync enable
-	# dnsmasq needs restart to pick up the new hotplug handler in /etc/hotplug.d/dhcp/
-	/etc/init.d/dnsmasq restart
+	echo "NOTE: Restart dnsmasq to activate the DHCP hotplug handler:"
+	echo "  /etc/init.d/dnsmasq restart"
 }
 exit 0
 endef

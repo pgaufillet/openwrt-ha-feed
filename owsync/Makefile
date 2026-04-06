@@ -1,4 +1,5 @@
-# OpenWrt Makefile for owsync
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 
 include $(TOPDIR)/rules.mk
 
