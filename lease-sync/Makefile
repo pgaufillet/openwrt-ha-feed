@@ -8,9 +8,9 @@ PKG_VERSION:=1.0.0
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/pgaufillet/dnsmasq.git
-PKG_SOURCE_VERSION:=d97c55beb8193a1bdfbc65129d05f34940b25e65
-PKG_MIRROR_HASH:=0ead0b577d48d9e180bf515da628908e4ba261c094c120821d20e2f6f5fe8a5c
+PKG_SOURCE_URL:=https://github.com/pgaufillet/lease-sync.git
+PKG_SOURCE_VERSION:=v1.0.0
+PKG_MIRROR_HASH:=d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed
 
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=GPL-2.0-or-later
@@ -37,7 +37,7 @@ define Package/lease-sync/conffiles
 endef
 
 define Build/Compile
-	$(MAKE) -C $(PKG_BUILD_DIR)/contrib/lease-sync/daemon \
+	$(MAKE) -C $(PKG_BUILD_DIR)/daemon \
 		CC="$(TARGET_CC)" \
 		CFLAGS="$(TARGET_CFLAGS) $(TARGET_CPPFLAGS)" \
 		LDFLAGS="$(TARGET_LDFLAGS)" \
@@ -47,7 +47,7 @@ endef
 
 define Package/lease-sync/install
 	$(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/contrib/lease-sync/daemon/lease-sync $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/daemon/lease-sync $(1)/usr/sbin/
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/lease-sync.init $(1)/etc/init.d/lease-sync
