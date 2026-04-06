@@ -513,7 +513,7 @@ index 0000000..bf6ea03
 +| No automatic expiry cleanup in lease-sync memory | In-memory lease table grows if leases are never explicitly deleted | dnsmasq manages lease lifecycle; daemon restart clears state |
 diff --git a/contrib/lease-sync/daemon/Makefile b/contrib/lease-sync/daemon/Makefile
 new file mode 100644
-index 0000000..fe9ac89
+index 0000000..2b03c6e
 --- /dev/null
 +++ b/contrib/lease-sync/daemon/Makefile
 @@ -0,0 +1,153 @@
@@ -548,7 +548,7 @@ index 0000000..fe9ac89
 +INCLUDES = -I. -I/usr/local/include
 +
 +# Libraries
-+LDFLAGS += -pthread -L/usr/local/lib
++LDFLAGS += -L/usr/local/lib
 +LIBS = -lubus -lubox -lssl -lcrypto
 +
 +# Installation directories
@@ -672,10 +672,10 @@ index 0000000..fe9ac89
 +	cd ../tests && ./run-tests.sh --all
 diff --git a/contrib/lease-sync/daemon/common.h b/contrib/lease-sync/daemon/common.h
 new file mode 100644
-index 0000000..54edf7a
+index 0000000..948556e
 --- /dev/null
 +++ b/contrib/lease-sync/daemon/common.h
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,366 @@
 +/* Copyright (C) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 + *
 + * This program is free software; you can redistribute it and/or modify
@@ -948,7 +948,6 @@ index 0000000..54edf7a
 +  uint16_t message_sequence;
 +
 +  /* Running state */
-+  volatile bool running;
 +  time_t start_time;
 +
 +  /* Startup reconciliation */
@@ -1009,7 +1008,6 @@ index 0000000..54edf7a
 +void ubus_handler_cleanup(void);
 +int ubus_handler_inject_lease(struct lease_entry *entry);
 +int ubus_handler_delete_lease(const char *ip);
-+void ubus_handler_process_events(void);
 +
 +/* Callback type for iterating dnsmasq leases */
 +typedef void (*lease_enum_callback_t)(const char *ip, const char *mac,
@@ -1988,10 +1986,10 @@ index 0000000..7662764
 +#endif /* LEASE_SYNC_CRYPTO_H */
 diff --git a/contrib/lease-sync/daemon/lease-db.c b/contrib/lease-sync/daemon/lease-db.c
 new file mode 100644
-index 0000000..7fa765d
+index 0000000..e0c5e7f
 --- /dev/null
 +++ b/contrib/lease-sync/daemon/lease-db.c
-@@ -0,0 +1,371 @@
+@@ -0,0 +1,330 @@
 +/* Copyright (C) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 + *
 + * This program is free software; you can redistribute it and/or modify
@@ -2008,21 +2006,18 @@ index 0000000..7fa765d
 +/*
 + * lease-db.c - In-memory lease database implementation
 + *
-+ * Uses a hash table with chaining for O(1) average case lookups
++ * Uses a hash table with chaining for O(1) average case lookups.
++ * Single-threaded: all access is from the uloop event loop.
 + */
 +
 +#include <stdio.h>
 +#include <stdlib.h>
 +#include <string.h>
-+#include <pthread.h>
 +
 +#include "common.h"
 +
 +/* Global state (defined in main) */
 +extern struct daemon_state *g_state;
-+
-+/* Read-write lock for thread-safe access */
-+static pthread_rwlock_t db_lock = PTHREAD_RWLOCK_INITIALIZER;
 +
 +static uint32_t hash_ip(const char *ip)
 +{
@@ -2061,8 +2056,6 @@ index 0000000..7fa765d
 +  if (!g_state)
 +    return;
 +
-+  pthread_rwlock_wrlock(&db_lock);
-+
 +  /* Free all lease entries */
 +  for (i = 0; i < HASH_TABLE_SIZE; i++)
 +    {
@@ -2080,8 +2073,6 @@ index 0000000..7fa765d
 +  g_state->local_lease_count = 0;
 +  g_state->peer_lease_count = 0;
 +
-+  pthread_rwlock_unlock(&db_lock);
-+
 +  log_info("Lease database cleaned up");
 +}
 +
@@ -2093,22 +2084,16 @@ index 0000000..7fa765d
 +  if (!g_state || !ip)
 +    return NULL;
 +
-+  pthread_rwlock_rdlock(&db_lock);
-+
 +  index = hash_ip(ip);
 +  entry = g_state->lease_table[index];
 +
 +  while (entry)
 +    {
 +      if (strcmp(entry->ip_str, ip) == 0)
-+        {
-+          pthread_rwlock_unlock(&db_lock);
-+          return entry;
-+        }
++        return entry;
 +      entry = entry->next;
 +    }
 +
-+  pthread_rwlock_unlock(&db_lock);
 +  return NULL;
 +}
 +
@@ -2124,8 +2109,6 @@ index 0000000..7fa765d
 +      return -1;
 +    }
 +
-+  pthread_rwlock_wrlock(&db_lock);
-+
 +  index = hash_ip(new_entry->ip_str);
 +
 +  /* Check if entry already exists */
@@ -2136,7 +2119,6 @@ index 0000000..7fa765d
 +      if (strcmp(entry->ip_str, new_entry->ip_str) == 0)
 +        {
 +          /* Entry exists - this is an update, not add */
-+          pthread_rwlock_unlock(&db_lock);
 +          log_warning("lease_db_add: lease %s already exists, use update instead",
 +                      new_entry->ip_str);
 +          return lease_db_update(new_entry);
@@ -2148,7 +2130,6 @@ index 0000000..7fa765d
 +  copy = malloc(sizeof(struct lease_entry));
 +  if (!copy)
 +    {
-+      pthread_rwlock_unlock(&db_lock);
 +      log_error("lease_db_add: failed to allocate memory");
 +      return -1;
 +    }
@@ -2167,8 +2148,6 @@ index 0000000..7fa765d
 +
 +  g_state->total_leases_added++;
 +
-+  pthread_rwlock_unlock(&db_lock);
-+
 +  log_debug("Added lease: %s (%s) from node %s",
 +            copy->ip_str, copy->hostname, copy->source_node);
 +
@@ -2186,8 +2165,6 @@ index 0000000..7fa765d
 +      return -1;
 +    }
 +
-+  pthread_rwlock_wrlock(&db_lock);
-+
 +  index = hash_ip(new_entry->ip_str);
 +  entry = g_state->lease_table[index];
 +
@@ -2202,7 +2179,6 @@ index 0000000..7fa765d
 +          /* Conflict resolution: newer timestamp wins */
 +          if (new_entry->timestamp_ms <= entry->timestamp_ms)
 +            {
-+              pthread_rwlock_unlock(&db_lock);
 +              log_debug("Ignoring older lease update for %s (local: %llu, remote: %llu)",
 +                        new_entry->ip_str,
 +                        (unsigned long long)entry->timestamp_ms,
@@ -2241,8 +2217,6 @@ index 0000000..7fa765d
 +
 +          g_state->total_leases_updated++;
 +
-+          pthread_rwlock_unlock(&db_lock);
-+
 +          log_debug("Updated lease: %s (%s) from node %s",
 +                    entry->ip_str, entry->hostname, entry->source_node);
 +
@@ -2250,8 +2224,6 @@ index 0000000..7fa765d
 +        }
 +      entry = entry->next;
 +    }
-+
-+  pthread_rwlock_unlock(&db_lock);
 +
 +  /* Entry not found - add it */
 +  log_debug("lease_db_update: lease %s not found, adding instead", new_entry->ip_str);
@@ -2269,8 +2241,6 @@ index 0000000..7fa765d
 +      log_error("lease_db_delete: invalid parameters");
 +      return -1;
 +    }
-+
-+  pthread_rwlock_wrlock(&db_lock);
 +
 +  index = hash_ip(ip);
 +  entry = g_state->lease_table[index];
@@ -2297,14 +2267,11 @@ index 0000000..7fa765d
 +          log_debug("Deleted lease: %s (%s)", entry->ip_str, entry->hostname);
 +
 +          free(entry);
-+          pthread_rwlock_unlock(&db_lock);
 +          return 0;
 +        }
 +      prev = entry;
 +      entry = entry->next;
 +    }
-+
-+  pthread_rwlock_unlock(&db_lock);
 +
 +  log_debug("lease_db_delete: lease %s not found", ip);
 +  return -1;  /* Not found */
@@ -2312,16 +2279,10 @@ index 0000000..7fa765d
 +
 +int lease_db_count(void)
 +{
-+  int count;
-+
 +  if (!g_state)
 +    return 0;
 +
-+  pthread_rwlock_rdlock(&db_lock);
-+  count = g_state->lease_count;
-+  pthread_rwlock_unlock(&db_lock);
-+
-+  return count;
++  return g_state->lease_count;
 +}
 +
 +void lease_db_foreach(void (*callback)(struct lease_entry *entry, void *user_data), void *user_data)
@@ -2330,8 +2291,6 @@ index 0000000..7fa765d
 +
 +  if (!g_state || !callback)
 +    return;
-+
-+  pthread_rwlock_rdlock(&db_lock);
 +
 +  for (i = 0; i < HASH_TABLE_SIZE; i++)
 +    {
@@ -2342,8 +2301,6 @@ index 0000000..7fa765d
 +          entry = entry->next;
 +        }
 +    }
-+
-+  pthread_rwlock_unlock(&db_lock);
 +}
 +
 +static void print_lease_callback(struct lease_entry *entry, void *user_data)
@@ -2365,10 +2322,10 @@ index 0000000..7fa765d
 +}
 diff --git a/contrib/lease-sync/daemon/lease-sync.c b/contrib/lease-sync/daemon/lease-sync.c
 new file mode 100644
-index 0000000..4e99a48
+index 0000000..8bc16f7
 --- /dev/null
 +++ b/contrib/lease-sync/daemon/lease-sync.c
-@@ -0,0 +1,657 @@
+@@ -0,0 +1,565 @@
 +/* Copyright (C) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 + *
 + * This program is free software; you can redistribute it and/or modify
@@ -2404,7 +2361,7 @@ index 0000000..4e99a48
 +#include <errno.h>
 +#include <getopt.h>
 +#include <fcntl.h>
-+#include <sys/select.h>
++#include <libubox/uloop.h>
 +#include <libubus.h>
 +
 +#include "common.h"
@@ -2413,29 +2370,16 @@ index 0000000..4e99a48
 +/* Global daemon state */
 +struct daemon_state *g_state = NULL;
 +
-+static void signal_handler(int sig)
-+{
-+  if (g_state)
-+    {
-+      log_info("Received signal %d, shutting down...", sig);
-+      g_state->running = false;
-+    }
-+}
++/* uloop file descriptor for UDP sync socket */
++static struct uloop_fd sync_uloop_fd;
 +
-+static void setup_signals(void)
-+{
-+  struct sigaction sa;
-+
-+  memset(&sa, 0, sizeof(sa));
-+  sa.sa_handler = signal_handler;
-+  sigemptyset(&sa.sa_mask);
-+
-+  sigaction(SIGINT, &sa, NULL);
-+  sigaction(SIGTERM, &sa, NULL);
-+
-+  /* Ignore SIGPIPE */
-+  signal(SIGPIPE, SIG_IGN);
-+}
++/* uloop timers */
++static struct uloop_timeout heartbeat_timer;
++static struct uloop_timeout sync_request_timer;
++static struct uloop_timeout peer_check_timer;
++static struct uloop_timeout retry_timer;
++static struct uloop_timeout stats_timer;
++static struct uloop_timeout reconcile_timer;
 +
 +static void print_usage(const char *prog)
 +{
@@ -2451,51 +2395,6 @@ index 0000000..4e99a48
 +  printf("Signals:\n");
 +  printf("  SIGTERM, SIGINT        Graceful shutdown\n");
 +  printf("\n");
-+}
-+
-+static int daemonize(void)
-+{
-+  pid_t pid = fork();
-+
-+  if (pid < 0)
-+    {
-+      fprintf(stderr, "Fork failed: %s\n", strerror(errno));
-+      return -1;
-+    }
-+
-+  if (pid > 0)
-+    {
-+      /* Parent process - exit */
-+      exit(0);
-+    }
-+
-+  /* Child process continues */
-+
-+  /* Create new session */
-+  if (setsid() < 0)
-+    {
-+      fprintf(stderr, "setsid() failed: %s\n", strerror(errno));
-+      return -1;
-+    }
-+
-+  /* Change working directory to root */
-+  if (chdir("/") < 0)
-+    {
-+      fprintf(stderr, "chdir() failed: %s\n", strerror(errno));
-+      return -1;
-+    }
-+
-+  /* Close standard file descriptors */
-+  close(STDIN_FILENO);
-+  close(STDOUT_FILENO);
-+  close(STDERR_FILENO);
-+
-+  /* Reopen to /dev/null */
-+  if (open("/dev/null", O_RDONLY) != STDIN_FILENO) return -1;
-+  if (open("/dev/null", O_WRONLY) != STDOUT_FILENO) return -1;
-+  if (open("/dev/null", O_WRONLY) != STDERR_FILENO) return -1;
-+
-+  return 0;
 +}
 +
 +static int daemon_init(const char *config_file)
@@ -2559,7 +2458,6 @@ index 0000000..4e99a48
 +      return -1;
 +    }
 +
-+  g_state->running = true;
 +  g_state->start_time = time(NULL);
 +  g_state->message_sequence = 0;
 +
@@ -2789,149 +2687,126 @@ index 0000000..4e99a48
 +  return deleted;
 +}
 +
++/* uloop callback: UDP sync socket is readable */
++static void sync_socket_cb(struct uloop_fd *fd, unsigned int events)
++{
++  (void)events;
++
++  if (fd->fd >= 0)
++    peer_sync_handle_message(g_state);
++}
++
++/* uloop timer callbacks */
++static void heartbeat_cb(struct uloop_timeout *t)
++{
++  peer_sync_send_heartbeat();
++  uloop_timeout_set(t, 30 * 1000);
++}
++
++static void sync_request_cb(struct uloop_timeout *t)
++{
++  if (g_state->config.sync_interval > 0)
++    {
++      peer_sync_request_full_sync();
++      uloop_timeout_set(t, g_state->config.sync_interval * 1000);
++    }
++}
++
++static void peer_check_cb(struct uloop_timeout *t)
++{
++  peer_sync_update_status();
++  uloop_timeout_set(t, 10 * 1000);
++}
++
++static void retry_cb(struct uloop_timeout *t)
++{
++  if (retry_queue_count() > 0)
++    retry_queue_process();
++  uloop_timeout_set(t, RETRY_INTERVAL_SECONDS * 1000);
++}
++
++static void stats_cb(struct uloop_timeout *t)
++{
++  log_info("Statistics: leases=%d (local=%d, peer=%d), "
++           "added=%llu, updated=%llu, deleted=%llu, "
++           "sent=%llu, recv=%llu, conflicts=%llu, "
++           "retry_queue=%d, retries=%llu, drops=%llu, reconciled=%llu",
++           g_state->lease_count,
++           g_state->local_lease_count,
++           g_state->peer_lease_count,
++           (unsigned long long)g_state->total_leases_added,
++           (unsigned long long)g_state->total_leases_updated,
++           (unsigned long long)g_state->total_leases_deleted,
++           (unsigned long long)g_state->total_sync_messages_sent,
++           (unsigned long long)g_state->total_sync_messages_received,
++           (unsigned long long)g_state->total_conflicts_resolved,
++           retry_queue_count(),
++           (unsigned long long)g_state->total_injection_retries,
++           (unsigned long long)g_state->total_injection_drops,
++           (unsigned long long)g_state->total_leases_reconciled);
++  uloop_timeout_set(t, 300 * 1000);
++}
++
++/* One-shot: startup reconciliation after sync wait */
++static void reconcile_cb(struct uloop_timeout *t)
++{
++  (void)t;
++
++  if (g_state->startup_phase == STARTUP_PHASE_SYNC_REQUESTED)
++    {
++      g_state->startup_phase = STARTUP_PHASE_RECONCILING;
++      startup_reconcile_leases();
++    }
++}
++
 +static void main_loop(void)
 +{
-+  time_t last_heartbeat = 0;
-+  time_t last_sync_request = 0;
-+  time_t last_peer_check = 0;
-+  time_t last_stats = 0;
-+
 +  log_info("Entering main event loop");
 +
 +  /* Request full sync from peers on startup */
 +  peer_sync_request_full_sync();
-+  last_sync_request = time(NULL);
 +
 +  /* Initialize startup reconciliation phase tracking */
 +  g_state->startup_phase = STARTUP_PHASE_SYNC_REQUESTED;
 +  g_state->startup_sync_request_time = time(NULL);
 +
-+  while (g_state->running)
++  /* Register UDP sync socket with uloop */
++  if (g_state->config.sync_socket >= 0)
 +    {
-+      time_t now = time(NULL);
-+      fd_set readfds;
-+      struct timeval tv;
-+      int max_fd = 0;
-+      int ret;
-+
-+      FD_ZERO(&readfds);
-+
-+      /* Add sync socket */
-+      if (g_state->config.sync_socket >= 0)
-+        {
-+          FD_SET(g_state->config.sync_socket, &readfds);
-+          max_fd = g_state->config.sync_socket;
-+        }
-+
-+      /* Add ubus fd */
-+      if (g_state->ubus_ctx)
-+        {
-+          int ufd = g_state->ubus_ctx->sock.fd;
-+          FD_SET(ufd, &readfds);
-+          if (ufd > max_fd)
-+            max_fd = ufd;
-+        }
-+
-+      /* Timeout for periodic tasks (1 second) */
-+      tv.tv_sec = 1;
-+      tv.tv_usec = 0;
-+
-+      ret = select(max_fd + 1, &readfds, NULL, NULL, &tv);
-+
-+      if (ret < 0)
-+        {
-+          if (errno == EINTR)
-+            continue;  /* Signal received */
-+
-+          log_error("select() failed: %s", strerror(errno));
-+          break;
-+        }
-+
-+      /* Handle sync socket */
-+      if (ret > 0 && g_state->config.sync_socket >= 0 &&
-+          FD_ISSET(g_state->config.sync_socket, &readfds))
-+        {
-+          peer_sync_handle_message(g_state);
-+        }
-+
-+      /* Handle ubus events */
-+      if (ret > 0 && g_state->ubus_ctx)
-+        {
-+          int ufd = g_state->ubus_ctx->sock.fd;
-+          if (FD_ISSET(ufd, &readfds))
-+            {
-+              ubus_handler_process_events();
-+            }
-+        }
-+
-+      /* Periodic: Send heartbeat to peers */
-+      if (now - last_heartbeat >= 30)
-+        {
-+          peer_sync_send_heartbeat();
-+          last_heartbeat = now;
-+        }
-+
-+      /* Periodic: Request full sync */
-+      if (g_state->config.sync_interval > 0 &&
-+          now - last_sync_request >= g_state->config.sync_interval)
-+        {
-+          peer_sync_request_full_sync();
-+          last_sync_request = now;
-+        }
-+
-+      /* Periodic: Check peer status */
-+      if (now - last_peer_check >= 10)
-+        {
-+          peer_sync_update_status();
-+          last_peer_check = now;
-+        }
-+
-+      /* Periodic: Process retry queue */
-+      {
-+        static time_t last_retry_process = 0;
-+        if (now - last_retry_process >= RETRY_INTERVAL_SECONDS)
-+          {
-+            if (retry_queue_count() > 0)
-+              {
-+                retry_queue_process();
-+              }
-+            last_retry_process = now;
-+          }
-+      }
-+
-+      /* One-time: Startup reconciliation
-+       * After waiting for sync responses, compare dnsmasq state with lease_db
-+       * and delete any stale leases from dnsmasq */
-+      if (g_state->startup_phase == STARTUP_PHASE_SYNC_REQUESTED &&
-+          now - g_state->startup_sync_request_time >= STARTUP_SYNC_WAIT_SECONDS)
-+        {
-+          g_state->startup_phase = STARTUP_PHASE_RECONCILING;
-+          startup_reconcile_leases();
-+        }
-+
-+      /* Periodic: Log statistics */
-+      if (now - last_stats >= 300)    /* Every 5 minutes */
-+        {
-+          log_info("Statistics: leases=%d (local=%d, peer=%d), "
-+                   "added=%llu, updated=%llu, deleted=%llu, "
-+                   "sent=%llu, recv=%llu, conflicts=%llu, "
-+                   "retry_queue=%d, retries=%llu, drops=%llu, reconciled=%llu",
-+                   g_state->lease_count,
-+                   g_state->local_lease_count,
-+                   g_state->peer_lease_count,
-+                   (unsigned long long)g_state->total_leases_added,
-+                   (unsigned long long)g_state->total_leases_updated,
-+                   (unsigned long long)g_state->total_leases_deleted,
-+                   (unsigned long long)g_state->total_sync_messages_sent,
-+                   (unsigned long long)g_state->total_sync_messages_received,
-+                   (unsigned long long)g_state->total_conflicts_resolved,
-+                   retry_queue_count(),
-+                   (unsigned long long)g_state->total_injection_retries,
-+                   (unsigned long long)g_state->total_injection_drops,
-+                   (unsigned long long)g_state->total_leases_reconciled);
-+          last_stats = now;
-+        }
++      sync_uloop_fd.fd = g_state->config.sync_socket;
++      sync_uloop_fd.cb = sync_socket_cb;
++      uloop_fd_add(&sync_uloop_fd, ULOOP_READ);
 +    }
++
++  /* Register ubus with uloop */
++  if (g_state->ubus_ctx)
++    ubus_add_uloop(g_state->ubus_ctx);
++
++  /* Arm periodic timers */
++  heartbeat_timer.cb = heartbeat_cb;
++  uloop_timeout_set(&heartbeat_timer, 30 * 1000);
++
++  if (g_state->config.sync_interval > 0)
++    {
++      sync_request_timer.cb = sync_request_cb;
++      uloop_timeout_set(&sync_request_timer, g_state->config.sync_interval * 1000);
++    }
++
++  peer_check_timer.cb = peer_check_cb;
++  uloop_timeout_set(&peer_check_timer, 10 * 1000);
++
++  retry_timer.cb = retry_cb;
++  uloop_timeout_set(&retry_timer, RETRY_INTERVAL_SECONDS * 1000);
++
++  stats_timer.cb = stats_cb;
++  uloop_timeout_set(&stats_timer, 300 * 1000);
++
++  /* One-shot: startup reconciliation after STARTUP_SYNC_WAIT_SECONDS */
++  reconcile_timer.cb = reconcile_cb;
++  uloop_timeout_set(&reconcile_timer, STARTUP_SYNC_WAIT_SECONDS * 1000);
++
++  /* Run event loop (handles SIGTERM/SIGINT) */
++  uloop_run();
 +
 +  log_info("Exiting main event loop");
 +}
@@ -2980,14 +2855,15 @@ index 0000000..4e99a48
 +        }
 +    }
 +
-+  /* Setup signal handlers */
-+  setup_signals();
++  /* Initialize uloop */
++  uloop_init();
 +
 +  /* Initialize daemon (loads config - log calls go to stderr before log_init) */
 +  if (daemon_init(config_file) < 0)
 +    {
 +      log_error("Daemon initialization failed");
 +      daemon_cleanup();
++      uloop_done();
 +      return 1;
 +    }
 +
@@ -3004,23 +2880,12 @@ index 0000000..4e99a48
 +
 +  log_info("Starting lease-sync daemon v%s", LEASE_SYNC_VERSION);
 +
-+  /* Daemonize if requested */
-+  if (!foreground && g_state->config.daemon_mode)
-+    {
-+      log_info("Daemonizing...");
-+      if (daemonize() < 0)
-+        {
-+          log_error("Failed to daemonize");
-+          daemon_cleanup();
-+          return 1;
-+        }
-+    }
-+
-+  /* Run main loop */
++  /* Run main loop (uloop handles signals and event dispatch) */
 +  main_loop();
 +
 +  /* Cleanup */
 +  daemon_cleanup();
++  uloop_done();
 +
 +  log_info("lease-sync daemon terminated");
 +
@@ -4856,10 +4721,10 @@ index 0000000..18ae3fe
 +exit $RESULT
 diff --git a/contrib/lease-sync/daemon/ubus-handler.c b/contrib/lease-sync/daemon/ubus-handler.c
 new file mode 100644
-index 0000000..25a2802
+index 0000000..6a62867
 --- /dev/null
 +++ b/contrib/lease-sync/daemon/ubus-handler.c
-@@ -0,0 +1,526 @@
+@@ -0,0 +1,519 @@
 +/* Copyright (C) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 + *
 + * This program is free software; you can redistribute it and/or modify
@@ -5378,14 +5243,7 @@ index 0000000..25a2802
 +  return ctx.count;
 +}
 +
-+void ubus_handler_process_events(void)
-+{
-+  if (!g_state || !g_state->ubus_ctx)
-+    return;
-+
-+  /* Process pending ubus events */
-+  ubus_handle_event(g_state->ubus_ctx);
-+}
++/* ubus event processing is handled by ubus_add_uloop() in the main loop */
 diff --git a/contrib/lease-sync/daemon/util.c b/contrib/lease-sync/daemon/util.c
 new file mode 100644
 index 0000000..ec32ba6
@@ -6515,10 +6373,10 @@ index 0000000..bf36047
 +exit $TEST_RESULT
 diff --git a/contrib/lease-sync/tests/run-lease-db-tests.sh b/contrib/lease-sync/tests/run-lease-db-tests.sh
 new file mode 100755
-index 0000000..0f00f5a
+index 0000000..cedf5d3
 --- /dev/null
 +++ b/contrib/lease-sync/tests/run-lease-db-tests.sh
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,82 @@
 +#!/bin/sh
 +# run-lease-db-tests.sh - Build and run lease-sync lease database tests
 +#
@@ -6533,7 +6391,6 @@ index 0000000..0f00f5a
 +#
 +# Prerequisites:
 +#   - GCC or compatible C compiler
-+#   - pthread library (usually built-in)
 +#
 +# This test links against daemon/lease-db.c and daemon/util.c.
 +
@@ -6574,7 +6431,6 @@ index 0000000..0f00f5a
 +$CC -o "$BUILD_DIR/test_lease_db" \
 +    -Wall -Wextra -Wno-comment -std=gnu99 \
 +    -I../daemon \
-+    -pthread \
 +    test_lease_db.c \
 +    test_framework.c \
 +    ../daemon/lease-db.c \
