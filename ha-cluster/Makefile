@@ -17,7 +17,7 @@ define Package/ha-cluster
   CATEGORY:=Network
   SUBMENU:=IP Addresses and Names
   TITLE:=High Availability Cluster Management
-  DEPENDS:=+keepalived +owsync
+  DEPENDS:=+keepalived
   PKGARCH:=all
 endef
 

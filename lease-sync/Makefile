@@ -14,6 +14,9 @@ PKG_MIRROR_HASH:=d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512e
 
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=GPL-2.0-or-later
+PKG_LICENSE_FILES:=LICENSE
+
+PKG_BUILD_PARALLEL:=1
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -22,7 +25,7 @@ define Package/lease-sync
   CATEGORY:=Network
   SUBMENU:=IP Addresses and Names
   TITLE:=DHCP Lease Synchronization Daemon
-  DEPENDS:=+libubus +libubox +libpthread +libopenssl +dnsmasq-ha
+  DEPENDS:=+libubus +libubox +libpthread +libopenssl +dnsmasq
 endef
 
 define Package/lease-sync/description
