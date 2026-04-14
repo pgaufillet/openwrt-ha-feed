@@ -20,7 +20,7 @@ start_service() {
     . /lib/functions.sh
     config_load lease-sync
 
-    local enabled sync_port sync_interval persist_interval peer_timeout log_level node_id
+    local enabled sync_port sync_interval peer_timeout log_level node_id
     config_get_bool enabled config enabled 0
 
     # If disabled in UCI, don't start
@@ -31,7 +31,6 @@ start_service() {
 
     config_get sync_port config sync_port "5378"
     config_get sync_interval config sync_interval "30"
-    config_get persist_interval config persist_interval "60"
     config_get peer_timeout config peer_timeout "120"
     config_get log_level config log_level "2"
     config_get node_id config node_id ""
@@ -46,7 +45,6 @@ start_service() {
 
 sync_port=$sync_port
 sync_interval=$sync_interval
-persist_interval=$persist_interval
 peer_timeout=$peer_timeout
 log_level=$log_level
 EOF
