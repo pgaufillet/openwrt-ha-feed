@@ -639,7 +639,7 @@ ha_add_owsync_includes_conf() {
 	local section="$1"
 	local enabled
 
-	config_get_bool enabled "$section" enabled 0
+	config_get_bool enabled "$section" enabled 1
 	[ "$enabled" -eq 0 ] && return 0
 
 	config_list_foreach "$section" config_files ha_add_owsync_include_conf

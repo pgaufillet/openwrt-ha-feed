@@ -184,6 +184,7 @@ return view.extend({
 		o = s.option(form.Flag, 'enabled', _('Enable Sync'),
 			_('Enable synchronization for this group.'));
 		o.default = '1';
+		o.rmempty = false;
 		o.modalonly = true;
 
 		o = s.option(form.DynamicList, 'config_files', _('Files/Directories to Sync'),
