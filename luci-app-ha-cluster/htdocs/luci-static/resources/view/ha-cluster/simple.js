@@ -294,7 +294,8 @@ return view.extend({
 
 		// Virtual IP Configuration
 		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
-			_('All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups.'));
+			_('All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups.') + ' ' +
+			_('Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.'));
 		s.anonymous = true;
 		s.addremove = true;
 		s.sortable = true;
@@ -335,7 +336,37 @@ return view.extend({
 		o.textvalue = function(section_id) {
 			var inst = uci.get('ha-cluster', section_id, 'vrrp_instance') || '';
 			if (!inst) return '-';
-			return uci.get('ha-cluster', inst, 'vrid') || '-';
+			var vrid = uci.get('ha-cluster', inst, 'vrid');
+			if (!vrid) return '-';
+			var addr6 = uci.get('ha-cluster', section_id, 'address6');
+			if (addr6) {
+				var vrid6 = parseInt(vrid, 10) + 128;
+				return vrid + ' (IPv6: ' + vrid6 + ')';
+			}
+			return vrid;
+		};
+		o.modalonly = false;
+
+		o = s.option(form.DummyValue, '_ipv4_display', _('IPv4 Address'));
+		o.textvalue = function(section_id) {
+			var addr = uci.get('ha-cluster', section_id, 'address');
+			if (addr) return addr;
+			return E('em', {}, _('none'));
+		};
+		o.modalonly = false;
+
+		o = s.option(form.DummyValue, '_ipv6_display', _('IPv6 Address'));
+		o.textvalue = function(section_id) {
+			var addr6 = uci.get('ha-cluster', section_id, 'address6');
+			if (addr6) return addr6;
+			return E('em', {}, _('none'));
+		};
+		o.modalonly = false;
+
+		o = s.option(form.DummyValue, '_enabled_display', _('Enable'));
+		o.textvalue = function(section_id) {
+			var en = uci.get('ha-cluster', section_id, 'enabled');
+			return (en === '1' || en === true || en == null) ? _('Yes') : _('No');
 		};
 		o.modalonly = false;
 
@@ -393,6 +424,7 @@ return view.extend({
 		o.datatype = 'ip4addr';
 		o.placeholder = '192.168.1.254';
 		o.rmempty = true;
+		o.modalonly = true;
 		o.description = _('Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).');
 		o.validate = function(section_id, value) {
 			var addr6 = this.map.lookupOption('address6', section_id);
