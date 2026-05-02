@@ -30,8 +30,8 @@ Web interface for managing High Availability clusters on OpenWrt.
 ## Installation
 
 ```bash
-opkg update
-opkg install luci-app-ha-cluster
+apk update
+apk add luci-app-ha-cluster
 ```
 
 ## Dependencies
@@ -99,8 +99,8 @@ Real-time monitoring with:
 make package/luci-app-ha-cluster/compile
 
 # Install on router
-scp bin/packages/*/luci/luci-app-ha-cluster_*.ipk root@router:/tmp/
-ssh root@router opkg install /tmp/luci-app-ha-cluster_*.ipk
+scp bin/packages/*/luci/luci-app-ha-cluster_*.apk root@router:/tmp/
+ssh root@router apk add /tmp/luci-app-ha-cluster_*.apk
 
 # Clear LuCI cache
 ssh root@router rm -rf /tmp/luci-*

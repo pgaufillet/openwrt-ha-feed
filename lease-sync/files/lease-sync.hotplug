@@ -61,8 +61,14 @@ build_lease_json() {
         ''|*[!0-9]*) ;;
         *) json="${json},\"expires\":$DNSMASQ_LEASE_EXPIRES" ;;
     esac
-    [ -n "$DNSMASQ_TIME_REMAINING" ] && json="${json},\"time_remaining\":$DNSMASQ_TIME_REMAINING"
-    [ -n "$DNSMASQ_LEASE_LENGTH" ] && json="${json},\"lease_length\":$DNSMASQ_LEASE_LENGTH"
+    case "$DNSMASQ_TIME_REMAINING" in
+        ''|*[!0-9]*) ;;
+        *) json="${json},\"time_remaining\":$DNSMASQ_TIME_REMAINING" ;;
+    esac
+    case "$DNSMASQ_LEASE_LENGTH" in
+        ''|*[!0-9]*) ;;
+        *) json="${json},\"lease_length\":$DNSMASQ_LEASE_LENGTH" ;;
+    esac
 
     # Client identification
     [ -n "$DNSMASQ_CLIENT_ID" ] && json="${json},\"client_id\":\"$DNSMASQ_CLIENT_ID\""

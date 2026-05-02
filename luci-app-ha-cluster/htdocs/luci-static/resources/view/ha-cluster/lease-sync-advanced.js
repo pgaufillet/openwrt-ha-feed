@@ -25,7 +25,7 @@ return view.extend({
 				E('div', { 'class': 'alert-message info' }, [
 					E('p', {}, _('Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization.')),
 					E('p', {}, [
-						E('a', { 'href': '/cgi-bin/luci/admin/system/opkg' }, _('Go to Software page') + ' \u2192')
+						E('a', { 'href': '/cgi-bin/luci/admin/system/package-manager' }, _('Go to Software page') + ' \u2192')
 					])
 				])
 			]);

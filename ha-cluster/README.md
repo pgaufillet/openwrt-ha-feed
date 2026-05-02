@@ -24,29 +24,21 @@ If you prefer to install manually, or if the script fails:
 
 ```sh
 # 1. Update package lists
-opkg update
+apk update
 
 # 2. Pre-install ALL dependencies from official feeds (while DNS works)
-opkg install libnettle kmod-ipt-ipset libnetfilter-conntrack nftables-json
-opkg install keepalived
-opkg install libopenssl3
+apk add libnettle kmod-ipt-ipset libnetfilter-conntrack nftables-json
+apk add keepalived
+apk add libopenssl3
 
-# 3. Download ALL ha_feed packages locally
-cd /tmp
-opkg download dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster
-
-# 4. Swap dnsmasq for dnsmasq-ha
-opkg remove dnsmasq          # or: opkg remove dnsmasq-full
-opkg install /tmp/dnsmasq-ha_*.ipk
-
-# 5. Install remaining packages from local files
-opkg install /tmp/owsync_*.ipk /tmp/lease-sync_*.ipk
-opkg install /tmp/ha-cluster_*.ipk /tmp/luci-app-ha-cluster_*.ipk
+# 3. Swap dnsmasq for dnsmasq-ha and install remaining packages
+apk del dnsmasq              # or: apk del dnsmasq-full
+apk add dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster
 ```
 
-**Why so many steps?** dnsmasq-ha replaces stock dnsmasq, but opkg cannot
-auto-remove conflicting packages. Removing dnsmasq kills DNS resolution,
-so ALL dependencies and packages must be pre-downloaded before the swap.
+**Why the explicit swap?** dnsmasq-ha replaces stock dnsmasq. Removing
+dnsmasq kills DNS resolution, so ALL dependencies must be pre-installed
+before the swap.
 
 ## Dependencies
 

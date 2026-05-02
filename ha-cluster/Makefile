@@ -9,6 +9,7 @@ PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=MIT
+PKG_LICENSE_FILES:=LICENSE
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -17,7 +18,7 @@ define Package/ha-cluster
   CATEGORY:=Network
   SUBMENU:=IP Addresses and Names
   TITLE:=High Availability Cluster Management
-  DEPENDS:=+keepalived +owsync
+  DEPENDS:=+keepalived
   PKGARCH:=all
 endef
 

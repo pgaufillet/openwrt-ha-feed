@@ -5,7 +5,7 @@
 #
 # Requires in parent context:
 #   - images/openwrt-x86-64-generic-rootfs.tar.gz
-#   - packages/*.ipk (dnsmasq-ha, lease-sync, owsync, ha-cluster, luci-app-ha-cluster)
+#   - packages/*.apk (dnsmasq-ha, lease-sync, owsync, ha-cluster, luci-app-ha-cluster)
 
 FROM scratch
 ADD images/openwrt-x86-64-generic-rootfs.tar.gz /
@@ -14,7 +14,7 @@ ADD images/openwrt-x86-64-generic-rootfs.tar.gz /
 RUN mkdir -p /var/lock /var/run /tmp/packages
 
 # Copy HA packages
-COPY packages/*.ipk /tmp/packages/
+COPY packages/*.apk /tmp/packages/
 
 # Install HA cluster packages
 # 1. Remove conflicting dnsmasq-full (force-depends to ignore deps temporarily)
@@ -26,17 +26,17 @@ COPY packages/*.ipk /tmp/packages/
 # We also create directories that dnsmasq postinst expects.
 RUN mkdir -p /tmp/resolv.conf.d && \
     touch /tmp/resolv.conf.d/resolv.conf.auto && \
-    opkg update 2>/dev/null || true && \
-    opkg remove --force-depends dnsmasq-full dnsmasq 2>/dev/null || true && \
-    IPKG_INSTROOT=/ opkg install keepalived 2>/dev/null || true && \
-    IPKG_INSTROOT=/ opkg install --force-depends /tmp/packages/*.ipk && \
+    apk update 2>/dev/null || true && \
+    apk del dnsmasq-full dnsmasq 2>/dev/null || true && \
+    IPKG_INSTROOT=/ apk add keepalived 2>/dev/null || true && \
+    IPKG_INSTROOT=/ apk add --allow-untrusted /tmp/packages/*.apk && \
     rm -rf /tmp/packages
 
 # Install network testing tools for T09/T10 tests
 # - tcpdump: packet capture for T10 encryption validation
 # - nftables: native fw4 firewall for T09 network partition simulation
-RUN opkg update 2>/dev/null || true && \
-    opkg install tcpdump nftables 2>/dev/null || true
+RUN apk update 2>/dev/null || true && \
+    apk add tcpdump nftables 2>/dev/null || true
 
 # Disable DNSSEC (not needed for testing, causes startup delays)
 RUN if [ -f /etc/config/dhcp ]; then \

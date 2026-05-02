@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
+
 include $(TOPDIR)/rules.mk
 
 LUCI_TITLE:=LuCI support for HA Cluster
