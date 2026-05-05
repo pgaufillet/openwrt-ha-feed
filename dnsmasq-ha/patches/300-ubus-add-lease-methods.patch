@@ -27,7 +27,7 @@ index 00748ad..74ab1f3 100644
  {
    FILE *leasestream;
 diff --git a/src/ubus.c b/src/ubus.c
-index b30f2b6..6b2e36e 100644
+index b30f2b6..6d1865c 100644
 --- a/src/ubus.c
 +++ b/src/ubus.c
 @@ -27,6 +27,48 @@ static int ubus_handle_metrics(struct ubus_context *ctx, struct ubus_object *obj
@@ -353,7 +353,7 @@ index b30f2b6..6b2e36e 100644
 +	{
 +	  for (i = 0; i < lease->hwaddr_len && i < DHCP_CHADDR_MAX; i++)
 +	    sprintf(hwaddr_str + i * 3, "%02x:", lease->hwaddr[i]);
-+	  hwaddr_str[lease->hwaddr_len * 3 - 1] = '\0';
++	  hwaddr_str[i * 3 - 1] = '\0';
 +	  CHECK(blobmsg_add_string(&b, "mac", hwaddr_str));
 +	}
 +
