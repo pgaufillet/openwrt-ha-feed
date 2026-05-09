@@ -3,13 +3,16 @@
 # Drop inbound DHCPv6 client requests on interfaces whose IPv6 VRRP instance is
 # BACKUP/FAULT/STOP, so dnsmasq cannot create non-authoritative DHCPv6 leases.
 
-[ -n "$ACTION" ] || exit 0
-[ -n "$NAME" ] || exit 0
+PATH="${HA_GUARD_PATH:-/usr/sbin:/usr/bin:/sbin:/bin}"
 
 TAG="ha-cluster"
 TABLE="ha_cluster_dhcpv6"
 SET="backup_ifaces"
-STATE_DIR="/tmp/ha-cluster/dhcpv6-backup-guard"
+RUN_DIR="${RUN_DIR:-/tmp/ha-cluster}"
+STATE_DIR="$RUN_DIR/dhcpv6-backup-guard"
+LOCK_DIR="$RUN_DIR/dhcpv6-backup-guard.lock"
+APPLIED_FILE="$STATE_DIR/.applied"
+PENDING_FILE="$STATE_DIR/.pending"
 
 log_info() {
 	logger -t "$TAG" -p daemon.info "$@"
@@ -19,15 +22,45 @@ log_warning() {
 	logger -t "$TAG" -p daemon.warning "$@"
 }
 
-is_ipv6_instance() {
-	case "$NAME" in
-		*_v6) return 0 ;;
-		*) return 1 ;;
-	esac
+mono_ms() {
+	awk '{ printf "%d\n", $1 * 1000 }' /proc/uptime 2>/dev/null
 }
 
 safe_name() {
 	printf '%s' "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
+}
+
+should_handle_event() {
+	[ -n "${ACTION:-}" ] || return 1
+	[ -n "${NAME:-}" ] || return 1
+
+	if [ -n "${TYPE:-}" ] && [ "$TYPE" != "INSTANCE" ]; then
+		return 1
+	fi
+
+	case "$NAME" in
+		*_v6) ;;
+		*) return 1 ;;
+	esac
+
+	case "$ACTION" in
+		MASTER|BACKUP|FAULT|STOP) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+desired_from_action() {
+	case "$1" in
+		MASTER)
+			echo "MASTER"
+			;;
+		BACKUP|FAULT|STOP)
+			echo "BACKUP"
+			;;
+		*)
+			return 1
+			;;
+	esac
 }
 
 resolve_instance_device() {
@@ -44,94 +77,246 @@ resolve_instance_device() {
 	printf '%s\n' "$device"
 }
 
-ensure_table() {
-	nft list table inet "$TABLE" >/dev/null 2>&1 && return 0
-
-	nft -f - <<-NFT
-	table inet $TABLE {
-		set $SET {
-			type ifname;
-		}
-
-		chain input {
-			type filter hook input priority -310; policy accept;
-			meta iifname @$SET meta nfproto ipv6 udp dport 547 counter drop
-		}
-	}
-	NFT
+state_path() {
+	printf '%s/%s.state\n' "$STATE_DIR" "$(safe_name "$1")"
 }
 
-marker_path() {
-	printf '%s/%s\n' "$STATE_DIR" "$(safe_name "$NAME")"
+write_latest_state() {
+	local desired="$1"
+	local token="$2"
+	local iface="$3"
+	local path
+
+	mkdir -p "$STATE_DIR" || return 1
+	path="$(state_path "$NAME")"
+
+	printf '%s|%s|%s|%s|%s|%s\n' \
+		"$desired" "$token" "${ACTION:-}" "${TYPE:-INSTANCE}" "$NAME" "$iface" > "${path}.tmp.$$" || return 1
+	mv "${path}.tmp.$$" "$path"
+	: > "$PENDING_FILE"
 }
 
-mark_backup() {
-	local iface="$1"
+acquire_lock() {
+	local pid
 
-	mkdir -p "$STATE_DIR"
-	printf '%s\n' "$iface" > "$(marker_path)"
-}
+	mkdir -p "$RUN_DIR" || return 1
 
-clear_marker() {
-	rm -f "$(marker_path)"
-}
+	if mkdir "$LOCK_DIR" 2>/dev/null; then
+		printf '%s\n' "$$" > "$LOCK_DIR/pid"
+		return 0
+	fi
 
-iface_still_blocked() {
-	local iface="$1"
-	local marker
-
-	for marker in "$STATE_DIR"/*; do
-		[ -f "$marker" ] || continue
-		[ "$(cat "$marker" 2>/dev/null)" = "$iface" ] && return 0
-	done
+	pid="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+	if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+		rm -rf "$LOCK_DIR"
+		if mkdir "$LOCK_DIR" 2>/dev/null; then
+			printf '%s\n' "$$" > "$LOCK_DIR/pid"
+			return 0
+		fi
+	fi
 
 	return 1
 }
 
-block_iface() {
-	local iface="$1"
-
-	ensure_table || {
-		log_warning "Failed to create DHCPv6 BACKUP guard nft table"
-		return 1
-	}
-
-	mark_backup "$iface"
-	nft add element inet "$TABLE" "$SET" "{ \"$iface\" }" 2>/dev/null || true
-	log_info "DHCPv6 server input blocked while $ACTION on $iface ($NAME)"
+release_lock() {
+	rm -rf "$LOCK_DIR"
 }
 
-allow_iface() {
-	local iface="$1"
-
-	clear_marker
-
-	if iface_still_blocked "$iface"; then
-		log_info "DHCPv6 server input remains blocked on $iface; another IPv6 VRRP instance is still BACKUP"
-		return 0
-	fi
-
-	if nft list table inet "$TABLE" >/dev/null 2>&1; then
-		nft delete element inet "$TABLE" "$SET" "{ \"$iface\" }" 2>/dev/null || true
-	fi
-
-	log_info "DHCPv6 server input allowed while MASTER on $iface ($NAME)"
+cleanup() {
+	[ "${LOCK_HELD:-0}" = "1" ] && release_lock
 }
 
-is_ipv6_instance || exit 0
+ensure_table() {
+	local output
 
+	if ! nft list table inet "$TABLE" >/dev/null 2>&1; then
+		output="$(nft -f - 2>&1 <<-NFT
+		table inet $TABLE {
+			set $SET {
+				type ifname;
+			}
+
+			chain input {
+				type filter hook input priority -310; policy accept;
+				meta iifname @$SET meta nfproto ipv6 udp dport 547 counter drop
+			}
+		}
+		NFT
+		)" || {
+			log_warning "Failed to create DHCPv6 BACKUP guard nft table: $output"
+			return 1
+		}
+	fi
+
+	if ! nft list set inet "$TABLE" "$SET" >/dev/null 2>&1; then
+		output="$(nft add set inet "$TABLE" "$SET" '{ type ifname; }' 2>&1)" || {
+			log_warning "Failed to create DHCPv6 BACKUP guard nft set: $output"
+			return 1
+		}
+	fi
+
+	if ! nft list chain inet "$TABLE" input >/dev/null 2>&1; then
+		output="$(nft add chain inet "$TABLE" input '{ type filter hook input priority -310; policy accept; }' 2>&1)" || {
+			log_warning "Failed to create DHCPv6 BACKUP guard nft input chain: $output"
+			return 1
+		}
+	fi
+
+	if ! nft list chain inet "$TABLE" input 2>/dev/null | grep -q "udp dport 547"; then
+		output="$(nft add rule inet "$TABLE" input meta iifname "@$SET" meta nfproto ipv6 udp dport 547 counter drop 2>&1)" || {
+			log_warning "Failed to create DHCPv6 BACKUP guard nft input rule: $output"
+			return 1
+		}
+	fi
+
+	# Remove an obsolete experimental chain if it exists. It is not used by
+	# current guard logic and can confuse runtime debugging.
+	nft delete chain inet "$TABLE" backup_input >/dev/null 2>&1 || true
+}
+
+collect_desired_ifaces() {
+	local file desired token action type name iface blocked
+
+	for file in "$STATE_DIR"/*.state; do
+		[ -f "$file" ] || continue
+		IFS='|' read -r desired token action type name iface < "$file"
+		[ "$desired" = "BACKUP" ] || continue
+		[ -n "$iface" ] || continue
+
+		case " $blocked " in
+			*" $iface "*) ;;
+			*) blocked="${blocked:+$blocked }$iface" ;;
+		esac
+	done
+
+	printf '%s\n' "$blocked"
+}
+
+collect_state_signature() {
+	local file
+
+	for file in "$STATE_DIR"/*.state; do
+		[ -f "$file" ] || continue
+		printf '%s:' "$(basename "$file")"
+		cat "$file" 2>/dev/null
+	done
+}
+
+build_nft_elements() {
+	local iface elements sep
+
+	for iface in $1; do
+		case "$iface" in
+			*\"*|*\\*|*\|*)
+				log_warning "Ignoring invalid interface name for DHCPv6 BACKUP guard: $iface"
+				return 1
+				;;
+		esac
+
+		elements="$elements$sep\"$iface\""
+		sep=", "
+	done
+
+	printf '%s\n' "$elements"
+}
+
+current_set_elements() {
+	nft list set inet "$TABLE" "$SET" 2>/dev/null | \
+		sed -n 's/.*elements = { \(.*\) }.*/\1/p' | \
+		head -n 1
+}
+
+reconcile_set() {
+	local desired="$1"
+	local elements output current
+
+	ensure_table || return 1
+
+	if [ -n "$desired" ]; then
+		elements="$(build_nft_elements "$desired")" || return 1
+		output="$(nft -f - 2>&1 <<-NFT
+		flush set inet $TABLE $SET
+		add element inet $TABLE $SET { $elements }
+		NFT
+		)" || {
+			log_warning "Failed to reconcile DHCPv6 BACKUP guard nft set to '$desired': $output"
+			return 1
+		}
+	else
+		output="$(nft flush set inet "$TABLE" "$SET" 2>&1)" || {
+			log_warning "Failed to clear DHCPv6 BACKUP guard nft set: $output"
+			return 1
+		}
+	fi
+
+	printf '%s\n' "$desired" > "$APPLIED_FILE"
+	current="$(current_set_elements)"
+	[ -n "$current" ] || current="empty"
+	log_info "DHCPv6 BACKUP guard reconciled blocked ifaces: desired=${desired:-empty}; nft=$current"
+	return 0
+}
+
+process_latest_states() {
+	local before after desired
+
+	while :; do
+		rm -f "$PENDING_FILE"
+
+		while :; do
+			before="$(collect_state_signature)"
+			desired="$(collect_desired_ifaces)"
+
+			reconcile_set "$desired" || return 1
+
+			# Coalesce near-simultaneous keepalived transitions. If another handler
+			# queued a newer state while this process owned the lock, run again.
+			sleep 1
+			after="$(collect_state_signature)"
+			[ "$before" = "$after" ] && break
+
+			log_info "DHCPv6 BACKUP guard detected queued state change; reconciling again"
+		done
+
+		[ -e "$PENDING_FILE" ] || break
+		log_info "DHCPv6 BACKUP guard detected pending event; reconciling again"
+	done
+}
+
+should_handle_event || exit 0
+
+DESIRED="$(desired_from_action "$ACTION")" || exit 0
 IFACE="$(resolve_instance_device "$NAME")" || {
 	log_warning "Cannot resolve interface for IPv6 VRRP instance $NAME"
 	exit 0
 }
+TOKEN="${DESIRED}:$$:$(mono_ms)"
 
-case "$ACTION" in
-	BACKUP|FAULT|STOP)
-		block_iface "$IFACE"
-		;;
-	MASTER)
-		allow_iface "$IFACE"
-		;;
-esac
+write_latest_state "$DESIRED" "$TOKEN" "$IFACE" || exit 1
+
+if ! acquire_lock; then
+	log_info "DHCPv6 BACKUP guard handler busy, queued desired=$DESIRED iface=$IFACE name=$NAME token=$TOKEN"
+	exit 0
+fi
+
+LOCK_HELD=1
+trap 'cleanup' EXIT INT TERM
+
+log_info "DHCPv6 BACKUP guard processing action=$ACTION desired=$DESIRED iface=$IFACE name=$NAME token=$TOKEN"
+
+while :; do
+	process_latest_states || exit 1
+
+	release_lock
+	LOCK_HELD=0
+
+	[ -e "$PENDING_FILE" ] || exit 0
+
+	if ! acquire_lock; then
+		exit 0
+	fi
+
+	LOCK_HELD=1
+	log_info "DHCPv6 BACKUP guard picked up pending state after releasing lock"
+done
 
 exit 0
