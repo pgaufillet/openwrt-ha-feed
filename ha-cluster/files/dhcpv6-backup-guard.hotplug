@@ -1,0 +1,137 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Drop inbound DHCPv6 client requests on interfaces whose IPv6 VRRP instance is
+# BACKUP/FAULT/STOP, so dnsmasq cannot create non-authoritative DHCPv6 leases.
+
+[ -n "$ACTION" ] || exit 0
+[ -n "$NAME" ] || exit 0
+
+TAG="ha-cluster"
+TABLE="ha_cluster_dhcpv6"
+SET="backup_ifaces"
+STATE_DIR="/tmp/ha-cluster/dhcpv6-backup-guard"
+
+log_info() {
+	logger -t "$TAG" -p daemon.info "$@"
+}
+
+log_warning() {
+	logger -t "$TAG" -p daemon.warning "$@"
+}
+
+is_ipv6_instance() {
+	case "$NAME" in
+		*_v6) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+safe_name() {
+	printf '%s' "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
+}
+
+resolve_instance_device() {
+	local instance="${1%_v6}"
+	local logical device
+
+	logical="$(uci -q get "ha-cluster.${instance}.interface")"
+	[ -n "$logical" ] || return 1
+
+	device="$(uci -q get "network.${logical}.device")"
+	[ -n "$device" ] || device="$(uci -q get "network.${logical}.ifname" | awk '{print $1}')"
+	[ -n "$device" ] || device="$logical"
+
+	printf '%s\n' "$device"
+}
+
+ensure_table() {
+	nft list table inet "$TABLE" >/dev/null 2>&1 && return 0
+
+	nft -f - <<-NFT
+	table inet $TABLE {
+		set $SET {
+			type ifname;
+		}
+
+		chain input {
+			type filter hook input priority -310; policy accept;
+			meta iifname @$SET meta nfproto ipv6 udp dport 547 counter drop
+		}
+	}
+	NFT
+}
+
+marker_path() {
+	printf '%s/%s\n' "$STATE_DIR" "$(safe_name "$NAME")"
+}
+
+mark_backup() {
+	local iface="$1"
+
+	mkdir -p "$STATE_DIR"
+	printf '%s\n' "$iface" > "$(marker_path)"
+}
+
+clear_marker() {
+	rm -f "$(marker_path)"
+}
+
+iface_still_blocked() {
+	local iface="$1"
+	local marker
+
+	for marker in "$STATE_DIR"/*; do
+		[ -f "$marker" ] || continue
+		[ "$(cat "$marker" 2>/dev/null)" = "$iface" ] && return 0
+	done
+
+	return 1
+}
+
+block_iface() {
+	local iface="$1"
+
+	ensure_table || {
+		log_warning "Failed to create DHCPv6 BACKUP guard nft table"
+		return 1
+	}
+
+	mark_backup "$iface"
+	nft add element inet "$TABLE" "$SET" "{ \"$iface\" }" 2>/dev/null || true
+	log_info "DHCPv6 server input blocked while $ACTION on $iface ($NAME)"
+}
+
+allow_iface() {
+	local iface="$1"
+
+	clear_marker
+
+	if iface_still_blocked "$iface"; then
+		log_info "DHCPv6 server input remains blocked on $iface; another IPv6 VRRP instance is still BACKUP"
+		return 0
+	fi
+
+	if nft list table inet "$TABLE" >/dev/null 2>&1; then
+		nft delete element inet "$TABLE" "$SET" "{ \"$iface\" }" 2>/dev/null || true
+	fi
+
+	log_info "DHCPv6 server input allowed while MASTER on $iface ($NAME)"
+}
+
+is_ipv6_instance || exit 0
+
+IFACE="$(resolve_instance_device "$NAME")" || {
+	log_warning "Cannot resolve interface for IPv6 VRRP instance $NAME"
+	exit 0
+}
+
+case "$ACTION" in
+	BACKUP|FAULT|STOP)
+		block_iface "$IFACE"
+		;;
+	MASTER)
+		allow_iface "$IFACE"
+		;;
+esac
+
+exit 0

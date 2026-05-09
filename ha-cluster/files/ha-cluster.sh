@@ -14,6 +14,8 @@ HA_CLUSTER_RUN_DIR="/tmp/ha-cluster"
 KEEPALIVED_CONF="${HA_CLUSTER_RUN_DIR}/keepalived.conf"
 OWSYNC_CONF="${HA_CLUSTER_RUN_DIR}/owsync.conf"
 LEASE_SYNC_CONF="${HA_CLUSTER_RUN_DIR}/lease-sync.conf"
+HA_DHCPV6_GUARD_TABLE="ha_cluster_dhcpv6"
+HA_DHCPV6_GUARD_STATE_DIR="${HA_CLUSTER_RUN_DIR}/dhcpv6-backup-guard"
 
 # Log level constants (matches syslog priorities)
 HA_LOG_LEVEL_ERROR=0
@@ -987,6 +989,12 @@ ha_release_dnsmasq() {
 	/etc/init.d/dnsmasq restart 2>/dev/null
 }
 
+# Remove DHCPv6 BACKUP guard state/rules when ha-cluster stops.
+ha_release_dhcpv6_guard() {
+	rm -rf "$HA_DHCPV6_GUARD_STATE_DIR"
+	nft delete table inet "$HA_DHCPV6_GUARD_TABLE" >/dev/null 2>&1 || true
+}
+
 # Apply all configurations
 ha_apply_config() {
 	ha_log "Applying HA cluster configuration"
@@ -1011,4 +1019,3 @@ ha_apply_config() {
 	ha_log "HA cluster configuration applied successfully"
 	return 0
 }
-

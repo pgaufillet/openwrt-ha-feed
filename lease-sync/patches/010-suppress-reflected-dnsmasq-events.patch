@@ -128,7 +128,7 @@ idempotent, and retrying an already-applied peer delete only adds noise.
 +      if (entry->action != action_class || strcmp(entry->ip, ip) != 0)
 +        continue;
 +
-+      log_info("Suppressing reflected %s lease event for %s", action, ip);
++      log_info("Suppressing reflected %s lease event for %s (local ubus event ignored; not broadcast to peers)", action, ip);
 +      memset(entry, 0, sizeof(*entry));
 +      return true;
 +    }

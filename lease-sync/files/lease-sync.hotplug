@@ -177,7 +177,7 @@ case "$ACTION" in
         [ -z "$IPADDR" ] && exit 0
 
         if suppress_marker_active; then
-            log info "$ACTION event for $IPADDR suppressed (lease-sync originated)"
+            log info "$ACTION event for $IPADDR suppressed (lease-sync originated; not published)"
             exit 0
         fi
 

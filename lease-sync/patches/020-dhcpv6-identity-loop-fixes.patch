@@ -374,7 +374,7 @@ be re-emitted to peers.
 @@ -140,6 +223,7 @@
          continue;
  
-       log_info("Suppressing reflected %s lease event for %s", action, ip);
+       log_info("Suppressing reflected %s lease event for %s (local ubus event ignored; not broadcast to peers)", action, ip);
 +      remove_suppressed_event_marker(ip, action_class);
        memset(entry, 0, sizeof(*entry));
        return true;
