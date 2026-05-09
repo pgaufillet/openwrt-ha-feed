@@ -1,5 +1,5 @@
 From: OpenWrt HA build <local>
-Subject: [PATCH] lease-sync: suppress reflected dnsmasq lease events
+Subject: [PATCH] lease-sync: suppress reflected events and preserve DHCPv6 identity
 
 When a peer lease update is injected into local dnsmasq via UBus, dnsmasq
 may emit the corresponding DHCP hotplug event back to lease-sync. Without
@@ -7,20 +7,93 @@ suppression the daemon treats that event as a new local lease change and
 broadcasts it back to the peer, creating an UPDATE/DELETE feedback loop.
 
 Remember short-lived expectations for daemon-initiated dnsmasq lease
-operations and consume the matching hotplug echo. Also treat delete of an
-already absent dnsmasq lease as success, since remote DELETE is idempotent.
+operations and consume the matching hotplug echo by IP/action. DHCPv6
+events may report DUID-derived identity differently from the synced MAC
+compatibility field, so matching the echo by MAC is unreliable.
 
+Preserve a full DHCPv6 DUID/client-id when dnsmasq reports it through the
+script MAC argument, and avoid treating DHCPv6 leases as MAC-identity
+leases during conflict detection. Also treat delete of an already absent
+dnsmasq lease as success, since remote DELETE is idempotent.
+
+--- a/daemon/lease-db.c
++++ b/daemon/lease-db.c
+@@ -38,6 +38,57 @@
+   return hash % HASH_TABLE_SIZE;
+ }
+ 
++static bool lease_client_id_equal(const struct lease_entry *a, const struct lease_entry *b)
++{
++  if (!a || !b)
++    return false;
++
++  if (a->client_id_len != b->client_id_len)
++    return false;
++
++  if (a->client_id_len == 0)
++    return true;
++
++  return memcmp(a->client_id, b->client_id, a->client_id_len) == 0;
++}
++
++static void lease_db_note_identity_conflict(const struct lease_entry *entry,
++                                            const struct lease_entry *new_entry)
++{
++  if (entry->af_family == AF_INET6 || new_entry->af_family == AF_INET6)
++    {
++      /* DHCPv6 identity is DUID/client-id based, not Ethernet MAC based.
++       * If client IDs are missing, do not report a MAC conflict from the
++       * truncated compatibility field. */
++      if (entry->client_id_len > 0 && new_entry->client_id_len > 0 &&
++          !lease_client_id_equal(entry, new_entry))
++        {
++          char old_id[MAX_CLIENT_ID_LEN * 3];
++          char new_id[MAX_CLIENT_ID_LEN * 3];
++
++          if (!format_mac(entry->client_id, entry->client_id_len,
++                          old_id, sizeof(old_id)))
++            strncpy(old_id, "<invalid>", sizeof(old_id) - 1);
++          if (!format_mac(new_entry->client_id, new_entry->client_id_len,
++                          new_id, sizeof(new_id)))
++            strncpy(new_id, "<invalid>", sizeof(new_id) - 1);
++
++          log_warning("Conflict detected for %s: DHCPv6 client ID changed from %s to %s (resolving by timestamp)",
++                      entry->ip_str, old_id, new_id);
++          g_state->total_conflicts_resolved++;
++        }
++      return;
++    }
++
++  /* IPv4 leases still use MAC address as the stable identity. */
++  if (strcmp(entry->mac, new_entry->mac) != 0)
++    {
++      log_warning("Conflict detected for %s: MAC changed from %s to %s (resolving by timestamp)",
++                  entry->ip_str, entry->mac, new_entry->mac);
++      g_state->total_conflicts_resolved++;
++    }
++}
++
+ int lease_db_init(void)
+ {
+   if (!g_state)
+@@ -194,13 +245,7 @@
+               return 0;  /* Not an error, just ignored */
+             }
+ 
+-          /* Check if MAC changed (conflict) */
+-          if (strcmp(entry->mac, new_entry->mac) != 0)
+-            {
+-              log_warning("Conflict detected for %s: MAC changed from %s to %s (resolving by timestamp)",
+-                          entry->ip_str, entry->mac, new_entry->mac);
+-              g_state->total_conflicts_resolved++;
+-            }
++          lease_db_note_identity_conflict(entry, new_entry);
+ 
+           /* Update entry in place */
+           next = entry->next;  /* Preserve chain */
 --- a/daemon/ubus-handler.c
 +++ b/daemon/ubus-handler.c
-@@ -23,6 +23,7 @@
- #include <stdio.h>
- #include <stdlib.h>
- #include <string.h>
-+#include <strings.h>
- #include <unistd.h>
- #include <errno.h>
- #include <libubox/blobmsg_json.h>
-@@ -33,6 +34,101 @@
+@@ -33,6 +33,111 @@
  
  extern struct daemon_state *g_state;
  
@@ -33,7 +106,6 @@ already absent dnsmasq lease as success, since remote DELETE is idempotent.
 +struct suppressed_lease_event
 +{
 +  char ip[INET6_ADDRSTRLEN];
-+  char mac[18];
 +  uint8_t action;
 +  uint64_t expires_ms;
 +};
@@ -57,7 +129,7 @@ already absent dnsmasq lease as success, since remote DELETE is idempotent.
 +  return 0;
 +}
 +
-+static void remember_expected_lease_event(const char *ip, const char *mac, uint8_t action)
++static void remember_expected_lease_event(const char *ip, uint8_t action)
 +{
 +  struct suppressed_lease_event *entry;
 +
@@ -67,8 +139,6 @@ already absent dnsmasq lease as success, since remote DELETE is idempotent.
 +  entry = &suppressed_events[suppressed_event_index++ % SUPPRESS_EVENT_RING_SIZE];
 +  memset(entry, 0, sizeof(*entry));
 +  strncpy(entry->ip, ip, sizeof(entry->ip) - 1);
-+  if (mac && *mac)
-+    strncpy(entry->mac, mac, sizeof(entry->mac) - 1);
 +  entry->action = action;
 +  entry->expires_ms = get_timestamp_ms() + SUPPRESS_EVENT_TTL_MS;
 +
@@ -76,7 +146,7 @@ already absent dnsmasq lease as success, since remote DELETE is idempotent.
 +            action == SUPPRESS_ACTION_DELETE ? "delete" : "upsert", ip);
 +}
 +
-+static bool consume_expected_lease_event(const char *action, const char *ip, const char *mac)
++static bool consume_expected_lease_event(const char *action, const char *ip)
 +{
 +  struct suppressed_lease_event *entry;
 +  uint8_t action_class;
@@ -107,10 +177,8 @@ already absent dnsmasq lease as success, since remote DELETE is idempotent.
 +      if (entry->action != action_class || strcmp(entry->ip, ip) != 0)
 +        continue;
 +
-+      if (action_class == SUPPRESS_ACTION_UPSERT &&
-+          entry->mac[0] && mac && *mac && strcasecmp(entry->mac, mac) != 0)
-+        continue;
-+
++      /* Match reflected add_lease echoes by IP/action only. dnsmasq may
++       * report DHCPv6/DUID-derived identity differently from the synced MAC. */
 +      log_debug("Suppressing reflected %s lease event for %s", action, ip);
 +      memset(entry, 0, sizeof(*entry));
 +      return true;
@@ -119,34 +187,88 @@ already absent dnsmasq lease as success, since remote DELETE is idempotent.
 +  return false;
 +}
 +
++static void set_lease_client_id_from_hex(struct lease_entry *entry, const char *clid_str)
++{
++  int clid_len = 0;
++  unsigned char clid_buf[MAX_CLIENT_ID_LEN];
++
++  if (!entry || !clid_str || !*clid_str)
++    return;
++
++  if (parse_mac(clid_str, clid_buf, sizeof(clid_buf), &clid_len) == 0 && clid_len > 0)
++    {
++      memcpy(entry->client_id, clid_buf, clid_len);
++      entry->client_id_len = clid_len;
++    }
++}
++
  static void handle_lease_event(struct ubus_context *ctx, struct ubus_event_handler *ev,
                                 const char *type, struct blob_attr *msg)
  {
-@@ -74,6 +170,10 @@
+@@ -74,6 +179,9 @@
  
    log_debug("Received ubus event: %s - %s %s", type, action, ip);
  
-+  if (consume_expected_lease_event(action, ip,
-+                                   tb[2] ? blobmsg_get_string(tb[2]) : NULL))
++  if (consume_expected_lease_event(action, ip))
 +    return;
 +
    /* startup reconciliation FIX: Skip "old" events during startup reconciliation phase.
     *
     * Problem: When dnsmasq starts, it reads leases from dhcp.leases and emits
-@@ -325,6 +425,8 @@
+@@ -167,7 +275,17 @@
+ 
+       /* MAC address */
+       if (tb[2])
+-        strncpy(entry.mac, blobmsg_get_string(tb[2]), sizeof(entry.mac) - 1);
++        {
++          const char *mac = blobmsg_get_string(tb[2]);
++
++          strncpy(entry.mac, mac, sizeof(entry.mac) - 1);
++
++          /* dnsmasq reports DHCPv6 client identity through the script MAC
++           * argument. Preserve the full DUID/client-id before the fixed-size
++           * Ethernet MAC field truncates it. */
++          if (entry.af_family == AF_INET6 && strlen(mac) >= sizeof(entry.mac))
++            set_lease_client_id_from_hex(&entry, mac);
++        }
+ 
+       /* Hostname */
+       if (tb[3])
+@@ -175,19 +293,7 @@
+ 
+       /* Client ID (hex string from dhcp-script) */
+       if (tb[4])
+-        {
+-          const char *clid_str = blobmsg_get_string(tb[4]);
+-          int clid_len = 0;
+-          unsigned char clid_buf[MAX_CLIENT_ID_LEN];
+-
+-          /* Parse hex string (format: "01:23:45:67:...") */
+-          parse_mac(clid_str, clid_buf, sizeof(clid_buf), &clid_len);
+-          if (clid_len > 0)
+-            {
+-              memcpy(entry.client_id, clid_buf, clid_len);
+-              entry.client_id_len = clid_len;
+-            }
+-        }
++        set_lease_client_id_from_hex(&entry, blobmsg_get_string(tb[4]));
+ 
+       /* Lease timing */
+       if (tb[5])
+@@ -325,6 +431,8 @@
          blobmsg_add_string(&b, "client_id", clid_str);
      }
  
-+  remember_expected_lease_event(entry->ip_str, entry->mac, SUPPRESS_ACTION_UPSERT);
++  remember_expected_lease_event(entry->ip_str, SUPPRESS_ACTION_UPSERT);
 +
    /* Call dnsmasq.add_lease */
    ret = ubus_invoke(g_state->ubus_ctx, id, "add_lease", b.head, NULL, NULL, 3000);
    blob_buf_free(&b);
-@@ -362,12 +464,20 @@
+@@ -362,12 +470,20 @@
    blob_buf_init(&b, 0);
    blobmsg_add_string(&b, "ip", ip);
  
-+  remember_expected_lease_event(ip, NULL, SUPPRESS_ACTION_DELETE);
++  remember_expected_lease_event(ip, SUPPRESS_ACTION_DELETE);
 +
    /* Call dnsmasq.delete_lease */
    ret = ubus_invoke(g_state->ubus_ctx, id, "delete_lease", b.head, NULL, NULL, 3000);
