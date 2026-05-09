@@ -1,0 +1,165 @@
+From: OpenWrt HA build <local>
+Subject: [PATCH] lease-sync: suppress reflected dnsmasq lease events
+
+When a peer lease update is injected into local dnsmasq via UBus, dnsmasq
+may emit the corresponding DHCP hotplug event back to lease-sync. Without
+suppression the daemon treats that event as a new local lease change and
+broadcasts it back to the peer, creating an UPDATE/DELETE feedback loop.
+
+Remember short-lived expectations for daemon-initiated dnsmasq lease
+operations and consume the matching hotplug echo. Also treat delete of an
+already absent dnsmasq lease as success, since remote DELETE is idempotent.
+
+--- a/daemon/ubus-handler.c
++++ b/daemon/ubus-handler.c
+@@ -23,6 +23,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <strings.h>
+ #include <unistd.h>
+ #include <errno.h>
+ #include <libubox/blobmsg_json.h>
+@@ -33,6 +34,101 @@
+ 
+ extern struct daemon_state *g_state;
+ 
++#define SUPPRESS_EVENT_RING_SIZE 64
++#define SUPPRESS_EVENT_TTL_MS 10000
++
++#define SUPPRESS_ACTION_UPSERT 1
++#define SUPPRESS_ACTION_DELETE 2
++
++struct suppressed_lease_event
++{
++  char ip[INET6_ADDRSTRLEN];
++  char mac[18];
++  uint8_t action;
++  uint64_t expires_ms;
++};
++
++static struct suppressed_lease_event suppressed_events[SUPPRESS_EVENT_RING_SIZE];
++static unsigned int suppressed_event_index;
++
++static uint8_t lease_event_action_class(const char *action)
++{
++  if (!action)
++    return 0;
++
++  if (strcmp(action, "del") == 0)
++    return SUPPRESS_ACTION_DELETE;
++
++  if (strcmp(action, "add") == 0 ||
++      strcmp(action, "update") == 0 ||
++      strcmp(action, "old") == 0)
++    return SUPPRESS_ACTION_UPSERT;
++
++  return 0;
++}
++
++static void remember_expected_lease_event(const char *ip, const char *mac, uint8_t action)
++{
++  struct suppressed_lease_event *entry;
++
++  if (!ip || !*ip || action == 0)
++    return;
++
++  entry = &suppressed_events[suppressed_event_index++ % SUPPRESS_EVENT_RING_SIZE];
++  memset(entry, 0, sizeof(*entry));
++  strncpy(entry->ip, ip, sizeof(entry->ip) - 1);
++  if (mac && *mac)
++    strncpy(entry->mac, mac, sizeof(entry->mac) - 1);
++  entry->action = action;
++  entry->expires_ms = get_timestamp_ms() + SUPPRESS_EVENT_TTL_MS;
++
++  log_debug("Expecting reflected %s event for %s",
++            action == SUPPRESS_ACTION_DELETE ? "delete" : "upsert", ip);
++}
++
++static bool consume_expected_lease_event(const char *action, const char *ip, const char *mac)
++{
++  struct suppressed_lease_event *entry;
++  uint8_t action_class;
++  uint64_t now;
++  int i;
++
++  if (!ip || !*ip)
++    return false;
++
++  action_class = lease_event_action_class(action);
++  if (action_class == 0)
++    return false;
++
++  now = get_timestamp_ms();
++
++  for (i = 0; i < SUPPRESS_EVENT_RING_SIZE; i++)
++    {
++      entry = &suppressed_events[i];
++      if (entry->action == 0)
++        continue;
++
++      if (entry->expires_ms <= now)
++        {
++          memset(entry, 0, sizeof(*entry));
++          continue;
++        }
++
++      if (entry->action != action_class || strcmp(entry->ip, ip) != 0)
++        continue;
++
++      if (action_class == SUPPRESS_ACTION_UPSERT &&
++          entry->mac[0] && mac && *mac && strcasecmp(entry->mac, mac) != 0)
++        continue;
++
++      log_debug("Suppressing reflected %s lease event for %s", action, ip);
++      memset(entry, 0, sizeof(*entry));
++      return true;
++    }
++
++  return false;
++}
++
+ static void handle_lease_event(struct ubus_context *ctx, struct ubus_event_handler *ev,
+                                const char *type, struct blob_attr *msg)
+ {
+@@ -74,6 +170,10 @@
+ 
+   log_debug("Received ubus event: %s - %s %s", type, action, ip);
+ 
++  if (consume_expected_lease_event(action, ip,
++                                   tb[2] ? blobmsg_get_string(tb[2]) : NULL))
++    return;
++
+   /* startup reconciliation FIX: Skip "old" events during startup reconciliation phase.
+    *
+    * Problem: When dnsmasq starts, it reads leases from dhcp.leases and emits
+@@ -325,6 +425,8 @@
+         blobmsg_add_string(&b, "client_id", clid_str);
+     }
+ 
++  remember_expected_lease_event(entry->ip_str, entry->mac, SUPPRESS_ACTION_UPSERT);
++
+   /* Call dnsmasq.add_lease */
+   ret = ubus_invoke(g_state->ubus_ctx, id, "add_lease", b.head, NULL, NULL, 3000);
+   blob_buf_free(&b);
+@@ -362,12 +464,20 @@
+   blob_buf_init(&b, 0);
+   blobmsg_add_string(&b, "ip", ip);
+ 
++  remember_expected_lease_event(ip, NULL, SUPPRESS_ACTION_DELETE);
++
+   /* Call dnsmasq.delete_lease */
+   ret = ubus_invoke(g_state->ubus_ctx, id, "delete_lease", b.head, NULL, NULL, 3000);
+   blob_buf_free(&b);
+ 
+   if (ret)
+     {
++      if (ret == UBUS_STATUS_NOT_FOUND)
++        {
++          log_debug("Lease %s already absent from dnsmasq", ip);
++          return 0;
++        }
++
+       log_error("Failed to delete lease %s: %s", ip, ubus_strerror(ret));
+       return -1;
+     }
