@@ -9,7 +9,9 @@ STOP=91
 
 USE_PROCD=1
 
-. /usr/lib/ha-cluster/ha-cluster.sh
+HA_CLUSTER_LIB="${IPKG_INSTROOT}/usr/lib/ha-cluster/ha-cluster.sh"
+[ -r "$HA_CLUSTER_LIB" ] || HA_CLUSTER_LIB="/usr/lib/ha-cluster/ha-cluster.sh"
+. "$HA_CLUSTER_LIB"
 
 start_service() {
 	local enabled
