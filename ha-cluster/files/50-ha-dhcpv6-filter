@@ -1,15 +1,11 @@
 #!/bin/sh
 
-# Keep DHCPv6 active only on the current IPv6 MASTER node. dnsmasq must keep
-# DHCPv6 initialized so lease-sync can inject peer leases over ubus, but BACKUP
-# nodes must not accept client DHCPv6 requests and allocate competing leases.
+# Keep DHCPv6 and router advertisements active only on the current authoritative
+# MASTER node. dnsmasq must keep DHCPv6 initialized so lease-sync can inject
+# peer leases over ubus, but BACKUP nodes must not serve clients or advertise
+# themselves as routers.
 
 [ "$TYPE" = "INSTANCE" ] || exit 0
-
-case "$NAME" in
-	*_v6) ;;
-	*) exit 0 ;;
-esac
 
 . /lib/functions.sh
 
@@ -22,9 +18,13 @@ config_get_bool sync_leases dhcp sync_leases 0
 
 NFT="/usr/sbin/nft"
 TABLE="ha_cluster_dhcpv6"
-CHAIN="backup_input"
-COMMENT="ha-cluster block DHCPv6 while BACKUP"
+INPUT_CHAIN="backup_input"
+OUTPUT_CHAIN="backup_output"
+INPUT_COMMENT="ha-cluster block DHCPv6 requests while BACKUP"
+OUTPUT_COMMENT="ha-cluster block DHCPv6 replies while BACKUP"
+RA_COMMENT="ha-cluster block IPv6 router advertisements while BACKUP"
 STATE_DIR="/tmp/ha-cluster/dhcpv6-state"
+ROLE_FILE="/tmp/ha-cluster/dhcpv6-role"
 
 safe_name="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_.-' '_')"
 mkdir -p "$STATE_DIR"
@@ -57,24 +57,35 @@ block_dhcpv6() {
 	"$NFT" list table inet "$TABLE" >/dev/null 2>&1 || \
 		"$NFT" add table inet "$TABLE"
 
-	"$NFT" list chain inet "$TABLE" "$CHAIN" >/dev/null 2>&1 || \
-		"$NFT" add chain inet "$TABLE" "$CHAIN" '{ type filter hook input priority -50; policy accept; }'
+	"$NFT" list chain inet "$TABLE" "$INPUT_CHAIN" >/dev/null 2>&1 || \
+		"$NFT" add chain inet "$TABLE" "$INPUT_CHAIN" '{ type filter hook input priority -50; policy accept; }'
 
-	"$NFT" -a list chain inet "$TABLE" "$CHAIN" 2>/dev/null | grep -q "$COMMENT" || \
-		"$NFT" add rule inet "$TABLE" "$CHAIN" meta nfproto ipv6 udp dport 547 counter drop comment "$COMMENT"
+	"$NFT" list chain inet "$TABLE" "$OUTPUT_CHAIN" >/dev/null 2>&1 || \
+		"$NFT" add chain inet "$TABLE" "$OUTPUT_CHAIN" '{ type filter hook output priority -50; policy accept; }'
 
-	logger -t ha-cluster -p daemon.info "DHCPv6 server input blocked while BACKUP"
+	"$NFT" -a list chain inet "$TABLE" "$INPUT_CHAIN" 2>/dev/null | grep -q "$INPUT_COMMENT" || \
+		"$NFT" add rule inet "$TABLE" "$INPUT_CHAIN" meta nfproto ipv6 udp dport 547 counter drop comment "\"$INPUT_COMMENT\""
+
+	"$NFT" -a list chain inet "$TABLE" "$OUTPUT_CHAIN" 2>/dev/null | grep -q "$OUTPUT_COMMENT" || \
+		"$NFT" add rule inet "$TABLE" "$OUTPUT_CHAIN" meta nfproto ipv6 udp sport 547 counter drop comment "\"$OUTPUT_COMMENT\""
+
+	"$NFT" -a list chain inet "$TABLE" "$OUTPUT_CHAIN" 2>/dev/null | grep -q "$RA_COMMENT" || \
+		"$NFT" add rule inet "$TABLE" "$OUTPUT_CHAIN" meta nfproto ipv6 ip6 nexthdr icmpv6 icmpv6 type nd-router-advert counter drop comment "\"$RA_COMMENT\""
+
+	logger -t ha-cluster -p daemon.info "DHCPv6 server traffic and router advertisements blocked while BACKUP"
 }
 
 unblock_dhcpv6() {
 	[ -x "$NFT" ] || return 0
 
 	"$NFT" delete table inet "$TABLE" >/dev/null 2>&1
-	logger -t ha-cluster -p daemon.info "DHCPv6 server input unblocked on MASTER"
+	logger -t ha-cluster -p daemon.info "DHCPv6 server traffic and router advertisements unblocked on MASTER"
 }
 
 if [ "$has_master" -eq 1 ]; then
+	echo "MASTER" > "$ROLE_FILE"
 	unblock_dhcpv6
 else
+	echo "BACKUP" > "$ROLE_FILE"
 	block_dhcpv6
 fi

@@ -21,7 +21,7 @@ dnsmasq lease as success, since remote DELETE is idempotent.
 @@ -38,6 +38,57 @@
    return hash % HASH_TABLE_SIZE;
  }
- 
+
 +static bool lease_client_id_equal(const struct lease_entry *a, const struct lease_entry *b)
 +{
 +  if (!a || !b)
@@ -79,7 +79,7 @@ dnsmasq lease as success, since remote DELETE is idempotent.
 @@ -194,13 +245,7 @@
                return 0;  /* Not an error, just ignored */
              }
- 
+
 -          /* Check if MAC changed (conflict) */
 -          if (strcmp(entry->mac, new_entry->mac) != 0)
 -            {
@@ -88,15 +88,15 @@ dnsmasq lease as success, since remote DELETE is idempotent.
 -              g_state->total_conflicts_resolved++;
 -            }
 +          lease_db_note_identity_conflict(entry, new_entry);
- 
+
            /* Update entry in place */
            next = entry->next;  /* Preserve chain */
 --- a/daemon/ubus-handler.c
 +++ b/daemon/ubus-handler.c
 @@ -33,6 +33,111 @@
- 
+
  extern struct daemon_state *g_state;
- 
+
 +#define SUPPRESS_EVENT_RING_SIZE 64
 +#define SUPPRESS_EVENT_TTL_MS 10000
 +
@@ -206,9 +206,9 @@ dnsmasq lease as success, since remote DELETE is idempotent.
                                 const char *type, struct blob_attr *msg)
  {
 @@ -74,6 +179,9 @@
- 
+
    log_debug("Received ubus event: %s - %s %s", type, action, ip);
- 
+
 +  if (consume_expected_lease_event(action, ip))
 +    return;
 +
@@ -216,7 +216,7 @@ dnsmasq lease as success, since remote DELETE is idempotent.
     *
     * Problem: When dnsmasq starts, it reads leases from dhcp.leases and emits
 @@ -167,7 +275,17 @@
- 
+
        /* MAC address */
        if (tb[2])
 -        strncpy(entry.mac, blobmsg_get_string(tb[2]), sizeof(entry.mac) - 1);
@@ -231,11 +231,11 @@ dnsmasq lease as success, since remote DELETE is idempotent.
 +          if (entry.af_family == AF_INET6 && strlen(mac) >= sizeof(entry.mac))
 +            set_lease_client_id_from_hex(&entry, mac);
 +        }
- 
+
        /* Hostname */
        if (tb[3])
 @@ -175,19 +293,7 @@
- 
+
        /* Client ID (hex string from dhcp-script) */
        if (tb[4])
 -        {
@@ -252,13 +252,13 @@ dnsmasq lease as success, since remote DELETE is idempotent.
 -            }
 -        }
 +        set_lease_client_id_from_hex(&entry, blobmsg_get_string(tb[4]));
- 
+
        /* Lease timing */
        if (tb[5])
 @@ -325,6 +431,8 @@
          blobmsg_add_string(&b, "client_id", clid_str);
      }
- 
+
 +  remember_expected_lease_event(entry->ip_str, SUPPRESS_ACTION_UPSERT);
 +
    /* Call dnsmasq.add_lease */
@@ -267,13 +267,13 @@ dnsmasq lease as success, since remote DELETE is idempotent.
 @@ -362,12 +470,20 @@
    blob_buf_init(&b, 0);
    blobmsg_add_string(&b, "ip", ip);
- 
+
 +  remember_expected_lease_event(ip, SUPPRESS_ACTION_DELETE);
 +
    /* Call dnsmasq.delete_lease */
    ret = ubus_invoke(g_state->ubus_ctx, id, "delete_lease", b.head, NULL, NULL, 3000);
    blob_buf_free(&b);
- 
+
    if (ret)
      {
 +      if (ret == UBUS_STATUS_NOT_FOUND)

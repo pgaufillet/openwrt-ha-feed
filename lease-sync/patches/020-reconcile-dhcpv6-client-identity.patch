@@ -13,7 +13,7 @@
 @@ -156,6 +156,35 @@
    return NULL;
  }
- 
+
 +struct lease_entry *lease_db_find_dhcpv6_identity_conflict(const struct lease_entry *new_entry)
 +{
 +  int i;
@@ -51,7 +51,7 @@
 @@ -127,6 +127,50 @@
    entry->sequence = ntohs(msg->sequence);
  }
- 
+
 +static bool reconcile_dhcpv6_identity_conflict(struct lease_entry *entry)
 +{
 +  struct lease_entry *conflict;
@@ -102,7 +102,7 @@
 @@ -712,6 +756,9 @@
                 msg.action == SYNC_ACTION_ADD ? "ADD" : "UPDATE",
                 entry.ip_str, msg.node_id);
- 
+
 +      if (!reconcile_dhcpv6_identity_conflict(&entry))
 +        break;
 +
@@ -110,9 +110,9 @@
        existing = lease_db_find(entry.ip_str);
        if (existing && existing->timestamp_ms >= entry.timestamp_ms)
 @@ -850,6 +897,9 @@
- 
+
        log_debug("Received SYNC_RESPONSE for %s from %s", entry.ip_str, msg.node_id);
- 
+
 +      if (!reconcile_dhcpv6_identity_conflict(&entry))
 +        break;
 +

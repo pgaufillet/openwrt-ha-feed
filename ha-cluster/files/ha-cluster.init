@@ -30,6 +30,7 @@ start_service() {
 	# Ensure runtime directories exist (must be before ha_apply_config)
 	mkdir -p /etc/owsync
 	mkdir -p "$HA_CLUSTER_RUN_DIR"
+	ha_init_dhcpv6_authority_state
 
 	# Generate configs and start all services
 	ha_apply_config || {
@@ -82,6 +83,7 @@ stop_service() {
 
 	# Remove dnsmasq HA overlay and restart dnsmasq
 	ha_release_dnsmasq
+	ha_clear_dhcpv6_authority_state
 
 	# Release service management back to standalone init scripts
 	ha_manage_services "release"

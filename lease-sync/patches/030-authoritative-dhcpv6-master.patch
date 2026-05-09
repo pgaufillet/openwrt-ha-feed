@@ -1,0 +1,395 @@
+From: OpenWrt HA build <local>
+Subject: [PATCH] lease-sync: prefer authoritative DHCPv6 leases
+
+DHCPv6 identity conflict detection is not enough when two HA nodes can both
+allocate different addresses for the same client_id/IAID. Timestamp based
+resolution can make the nodes replace each other's leases forever.
+
+Add an optional dynamic role file. When configured by ha-cluster, only the
+current MASTER is authoritative for locally-created DHCPv6 leases. BACKUP
+nodes keep peer leases but suppress and delete locally-created DHCPv6 leases
+instead of publishing them. Peer conflict resolution prefers authoritative
+leases first, then timestamp, then node_id as a deterministic tie-breaker.
+
+For wire compatibility, the existing expected_ts field carries the
+authoritative flag for ADD/UPDATE/SYNC_RESPONSE messages. DELETE continues to
+use expected_ts as the deleted lease timestamp.
+
+--- a/daemon/common.h
++++ b/daemon/common.h
+@@ -115,6 +115,7 @@ struct lease_entry
+   /* Metadata */
+   char source_node[MAX_NODE_ID_LEN];     /* Node that created this lease */
+   uint64_t timestamp_ms;                  /* For conflict resolution */
++  bool authoritative;                     /* DHCPv6 lease came from authoritative node */
+   uint16_t sequence;                      /* Message sequence number */
+
+   /* Hash table linkage */
+@@ -216,6 +217,7 @@ struct config
+   uint16_t sync_port;
+   int sync_socket;
+   char bind_address[INET6_ADDRSTRLEN];  /* Explicit bind address (empty = all interfaces) */
++  char dhcpv6_role_file[256];           /* Optional dynamic role file: MASTER/BACKUP */
+
+   /* Timing */
+   int sync_interval;                      /* Periodic full sync interval (seconds) */
+@@ -357,6 +359,9 @@ const char *format_ip(const struct socka
+ const char *format_mac(const unsigned char *mac, int len, char *buf, size_t bufsz);
+ int parse_mac(const char *str, unsigned char *mac, size_t max_len, int *len);
+ bool is_seen_message(uint16_t sequence, const char *node_id);
++bool lease_sync_dhcpv6_is_authoritative(void);
++bool lease_entry_is_authoritative(const struct lease_entry *entry);
++int lease_entry_preference_compare(const struct lease_entry *candidate, const struct lease_entry *current);
+ void mark_message_seen(uint16_t sequence, const char *node_id);
+ char *trim_whitespace(char *str);
+ int parse_int(const char *str, int *value);
+--- a/daemon/config.c
++++ b/daemon/config.c
+@@ -50,6 +50,7 @@ void config_set_defaults(struct config *
+   config->sync_port = DEFAULT_SYNC_PORT;
+   config->sync_socket = -1;
+   config->bind_address[0] = '\0';  /* Empty = bind to all interfaces */
++  config->dhcpv6_role_file[0] = '\0';  /* Empty = standalone mode, always authoritative */
+
+   /* Timing defaults */
+   config->sync_interval = DEFAULT_SYNC_INTERVAL;
+@@ -386,6 +387,11 @@ int config_load_file(const char *file, s
+           strncpy(config->bind_address, value, sizeof(config->bind_address) - 1);
+           config->bind_address[sizeof(config->bind_address) - 1] = '\0';
+         }
++      else if (strcmp(key, "dhcpv6_role_file") == 0)
++        {
++          strncpy(config->dhcpv6_role_file, value, sizeof(config->dhcpv6_role_file) - 1);
++          config->dhcpv6_role_file[sizeof(config->dhcpv6_role_file) - 1] = '\0';
++        }
+       else
+         {
+           log_warning("Unknown config key at line %d: %s", line_num, key);
+--- a/daemon/lease-db.c
++++ b/daemon/lease-db.c
+@@ -264,8 +264,20 @@ int lease_db_update(struct lease_entry *
+           bool was_local;
+           bool is_local;
+
+-          /* Conflict resolution: newer timestamp wins */
+-          if (new_entry->timestamp_ms <= entry->timestamp_ms)
++          /* Conflict resolution:
++           * - IPv4 keeps the original timestamp-only behavior.
++           * - DHCPv6 prefers authoritative MASTER leases before timestamp,
++           *   then node_id as a deterministic tie-breaker. */
++          if (entry->af_family == AF_INET6 || new_entry->af_family == AF_INET6)
++            {
++              if (lease_entry_preference_compare(new_entry, entry) <= 0)
++                {
++                  log_debug("Ignoring lower-priority DHCPv6 lease update for %s",
++                            new_entry->ip_str);
++                  return 0;
++                }
++            }
++          else if (new_entry->timestamp_ms <= entry->timestamp_ms)
+             {
+               log_debug("Ignoring older lease update for %s (local: %llu, remote: %llu)",
+                         new_entry->ip_str,
+--- a/daemon/peer-sync.c
++++ b/daemon/peer-sync.c
+@@ -76,8 +76,12 @@ static void lease_to_sync_message(struct
+
+   strncpy(msg->interface, entry->interface, sizeof(msg->interface) - 1);
+
+-  /* Initialize expected_ts to 0 (not used for ADD/UPDATE) */
+-  msg->expected_ts = 0;
++  /* For ADD/UPDATE/SYNC_RESPONSE, expected_ts is otherwise unused. Reuse it
++   * as a backward-compatible DHCPv6 authoritative-origin flag. DELETE
++   * messages overwrite this with the deleted lease timestamp. */
++  msg->expected_ts = (action != SYNC_ACTION_DELETE && entry->af_family == AF_INET6) ?
++                     htobe64(lease_entry_is_authoritative(entry) ? 1 : 0) :
++                     0;
+ }
+
+ static void sync_message_to_lease(struct sync_message *msg, struct lease_entry *entry)
+@@ -125,6 +129,10 @@ static void sync_message_to_lease(struct
+   strncpy(entry->source_node, msg->node_id, MAX_NODE_ID_LEN - 1);
+   entry->timestamp_ms = be64toh(msg->timestamp_ms);
+   entry->sequence = ntohs(msg->sequence);
++  entry->authoritative = (entry->af_family != AF_INET6 ||
++                          msg->action == SYNC_ACTION_DELETE) ?
++                         true :
++                         (be64toh(msg->expected_ts) != 0);
+ }
+
+ static bool reconcile_dhcpv6_identity_conflict(struct lease_entry *entry)
+@@ -137,12 +145,12 @@ static bool reconcile_dhcpv6_identity_co
+   if (!conflict)
+     return true;
+
+-  if (conflict->timestamp_ms >= entry->timestamp_ms)
++  if (lease_entry_preference_compare(entry, conflict) <= 0)
+     {
+-      log_info("Ignoring DHCPv6 lease %s: existing lease %s for same client_id/iaid is same or newer (%llu >= %llu)",
++      log_info("Ignoring DHCPv6 lease %s: existing lease %s for same client_id/iaid is preferred (incoming_auth=%d existing_auth=%d)",
+                entry->ip_str, conflict->ip_str,
+-               (unsigned long long)conflict->timestamp_ms,
+-               (unsigned long long)entry->timestamp_ms);
++               lease_entry_is_authoritative(entry) ? 1 : 0,
++               lease_entry_is_authoritative(conflict) ? 1 : 0);
+       return false;
+     }
+
+@@ -154,8 +162,10 @@ static bool reconcile_dhcpv6_identity_co
+   memcpy(&stale, conflict, sizeof(stale));
+   stale.next = NULL;
+
+-  log_warning("DHCPv6 identity conflict for client_id %s iaid %u: replacing stale lease %s with peer lease %s",
+-              client_id, entry->iaid, stale.ip_str, entry->ip_str);
++  log_warning("DHCPv6 identity conflict for client_id %s iaid %u: replacing stale lease %s from %s with preferred lease %s from %s",
++              client_id, entry->iaid,
++              stale.ip_str, stale.source_node,
++              entry->ip_str, entry->source_node);
+
+   lease_db_delete(stale.ip_str);
+
+@@ -495,6 +505,13 @@ int peer_sync_broadcast_lease(struct lea
+   if (!entry || !g_state)
+     return -1;
+
++  if (entry->af_family == AF_INET6 && !lease_entry_is_authoritative(entry))
++    {
++      log_info("Not broadcasting non-authoritative DHCPv6 lease %s from %s",
++               entry->ip_str, entry->source_node);
++      return 0;
++    }
++
+   lease_to_sync_message(entry, &msg, action);
+
+   for (i = 0; i < g_state->config.peer_count; i++)
+@@ -761,14 +778,27 @@ void peer_sync_handle_message(struct syn
+
+       /* Check if we have a newer lease (race condition protection) */
+       existing = lease_db_find(entry.ip_str);
+-      if (existing && existing->timestamp_ms >= entry.timestamp_ms)
++      if (existing)
+         {
+-          log_info("Ignoring %s for %s: local lease is same or newer (%llu >= %llu)",
+-                   msg.action == SYNC_ACTION_ADD ? "ADD" : "UPDATE",
+-                   entry.ip_str,
+-                   (unsigned long long)existing->timestamp_ms,
+-                   (unsigned long long)entry.timestamp_ms);
+-          break;
++          if (entry.af_family == AF_INET6)
++            {
++              if (lease_entry_preference_compare(&entry, existing) <= 0)
++                {
++                  log_info("Ignoring %s for %s: existing DHCPv6 lease is preferred",
++                           msg.action == SYNC_ACTION_ADD ? "ADD" : "UPDATE",
++                           entry.ip_str);
++                  break;
++                }
++            }
++          else if (existing->timestamp_ms >= entry.timestamp_ms)
++            {
++              log_info("Ignoring %s for %s: local lease is same or newer (%llu >= %llu)",
++                       msg.action == SYNC_ACTION_ADD ? "ADD" : "UPDATE",
++                       entry.ip_str,
++                       (unsigned long long)existing->timestamp_ms,
++                       (unsigned long long)entry.timestamp_ms);
++              break;
++            }
+         }
+
+       /* Add/update in database */
+@@ -811,6 +841,13 @@ void peer_sync_handle_message(struct syn
+            * In this case, don't delete - broadcast UPDATE to inform sender. */
+           if (expected_ts > 0 && existing->timestamp_ms > expected_ts)
+             {
++              if (existing->af_family == AF_INET6 && !lease_entry_is_authoritative(existing))
++                {
++                  log_info("Deleting non-authoritative DHCPv6 lease %s despite newer timestamp",
++                           entry.ip_str);
++                }
++              else
++                {
+               log_info("Local lease for %s is newer than deleted lease "
+                        "(local=%llu > expected=%llu), broadcasting UPDATE",
+                        entry.ip_str,
+@@ -820,6 +857,7 @@ void peer_sync_handle_message(struct syn
+               /* Broadcast UPDATE to inform all peers of the newer lease */
+               peer_sync_broadcast_lease(existing, SYNC_ACTION_UPDATE);
+               break;
++                }
+             }
+
+           /* Defensive: Handle case where expected_ts is not set (ADD/UPDATE reuse) */
+@@ -874,6 +912,12 @@ void peer_sync_handle_message(struct syn
+           struct lease_entry *entry = state->lease_table[i];
+           while (entry)
+             {
++              if (entry->af_family == AF_INET6 && !lease_entry_is_authoritative(entry))
++                {
++                  entry = entry->next;
++                  continue;
++                }
++
+               struct sync_message response;
+               lease_to_sync_message(entry, &response, SYNC_ACTION_SYNC_RESPONSE);
+               if (peer_sync_send_to_peer(requester, &response) == 0)
+@@ -902,11 +946,23 @@ void peer_sync_handle_message(struct syn
+
+       /* Check if we have a newer lease (same logic as ADD/UPDATE) */
+       existing = lease_db_find(entry.ip_str);
+-      if (existing && existing->timestamp_ms >= entry.timestamp_ms)
++      if (existing)
+         {
+-          log_debug("Ignoring SYNC_RESPONSE for %s: local lease is same or newer",
+-                    entry.ip_str);
+-          break;
++          if (entry.af_family == AF_INET6)
++            {
++              if (lease_entry_preference_compare(&entry, existing) <= 0)
++                {
++                  log_debug("Ignoring SYNC_RESPONSE for %s: existing DHCPv6 lease is preferred",
++                            entry.ip_str);
++                  break;
++                }
++            }
++          else if (existing->timestamp_ms >= entry.timestamp_ms)
++            {
++              log_debug("Ignoring SYNC_RESPONSE for %s: local lease is same or newer",
++                        entry.ip_str);
++              break;
++            }
+         }
+
+       /* Add/update in database */
+--- a/daemon/ubus-handler.c
++++ b/daemon/ubus-handler.c
+@@ -314,6 +314,38 @@ static void ubus_event_handler(struct ub
+       /* Metadata */
+       strncpy(entry.source_node, g_state->config.node_id, MAX_NODE_ID_LEN - 1);
+       entry.timestamp_ms = get_timestamp_ms();
++      entry.authoritative = (entry.af_family != AF_INET6) ||
++                            lease_sync_dhcpv6_is_authoritative();
++
++      if (entry.af_family == AF_INET6 && !entry.authoritative)
++        {
++          struct lease_entry *existing = lease_db_find(entry.ip_str);
++          struct lease_entry *conflict = lease_db_find_dhcpv6_identity_conflict(&entry);
++
++          if (existing && strcmp(existing->source_node, g_state->config.node_id) != 0 &&
++              lease_entry_is_authoritative(existing))
++            {
++              log_debug("Ignoring non-authoritative DHCPv6 refresh for peer lease %s from %s",
++                        entry.ip_str, existing->source_node);
++              return;
++            }
++
++          if (conflict && lease_entry_is_authoritative(conflict))
++            {
++              log_warning("Deleting non-authoritative local DHCPv6 lease %s for %s; authoritative lease is %s from %s",
++                          entry.ip_str, entry.hostname,
++                          conflict->ip_str, conflict->source_node);
++            }
++          else
++            {
++              log_warning("Deleting non-authoritative local DHCPv6 lease %s for %s",
++                          entry.ip_str, entry.hostname);
++            }
++
++          lease_db_delete(entry.ip_str);
++          ubus_handler_delete_lease(entry.ip_str);
++          return;
++        }
+
+       /* Add/update in local database */
+       if (strcmp(action, "add") == 0)
+--- a/daemon/util.c
++++ b/daemon/util.c
+@@ -15,6 +15,7 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <time.h>
++#include <strings.h>
+ #include <errno.h>
+ #include <sys/time.h>
+ #include <arpa/inet.h>
+@@ -217,6 +218,81 @@ int parse_int(const char *str, int *val
+   return 0;
+ }
+
++bool lease_sync_dhcpv6_is_authoritative(void)
++{
++  FILE *f;
++  char role[32];
++  char *value;
++
++  if (!g_state)
++    return false;
++
++  /* Standalone lease-sync has no HA role file and remains authoritative. */
++  if (g_state->config.dhcpv6_role_file[0] == '\0')
++    return true;
++
++  f = fopen(g_state->config.dhcpv6_role_file, "r");
++  if (!f)
++    {
++      log_debug("DHCPv6 role file %s is not available, treating node as non-authoritative",
++                g_state->config.dhcpv6_role_file);
++      return false;
++    }
++
++  if (!fgets(role, sizeof(role), f))
++    {
++      fclose(f);
++      return false;
++    }
++  fclose(f);
++
++  value = trim_whitespace(role);
++  return (strcasecmp(value, "MASTER") == 0 ||
++          strcasecmp(value, "AUTHORITATIVE") == 0 ||
++          strcmp(value, "1") == 0);
++}
++
++bool lease_entry_is_authoritative(const struct lease_entry *entry)
++{
++  if (!entry)
++    return false;
++
++  if (entry->af_family != AF_INET6)
++    return true;
++
++  if (g_state && strcmp(entry->source_node, g_state->config.node_id) == 0)
++    return lease_sync_dhcpv6_is_authoritative();
++
++  return entry->authoritative;
++}
++
++int lease_entry_preference_compare(const struct lease_entry *candidate,
++                                   const struct lease_entry *current)
++{
++  bool candidate_auth;
++  bool current_auth;
++  int node_cmp;
++
++  if (!candidate)
++    return -1;
++  if (!current)
++    return 1;
++
++  candidate_auth = lease_entry_is_authoritative(candidate);
++  current_auth = lease_entry_is_authoritative(current);
++
++  if (candidate_auth != current_auth)
++    return candidate_auth ? 1 : -1;
++
++  if (candidate->timestamp_ms != current->timestamp_ms)
++    return (candidate->timestamp_ms > current->timestamp_ms) ? 1 : -1;
++
++  node_cmp = strcmp(candidate->source_node, current->source_node);
++  if (node_cmp == 0)
++    return 0;
++  return (node_cmp > 0) ? 1 : -1;
++}
++
+ const char *format_timestamp(time_t t, char *buf, size_t size)
+ {
+   struct tm *tm_info;

@@ -14,6 +14,8 @@ HA_CLUSTER_RUN_DIR="/tmp/ha-cluster"
 KEEPALIVED_CONF="${HA_CLUSTER_RUN_DIR}/keepalived.conf"
 OWSYNC_CONF="${HA_CLUSTER_RUN_DIR}/owsync.conf"
 LEASE_SYNC_CONF="${HA_CLUSTER_RUN_DIR}/lease-sync.conf"
+DHCPV6_ROLE_FILE="${HA_CLUSTER_RUN_DIR}/dhcpv6-role"
+DHCPV6_STATE_DIR="${HA_CLUSTER_RUN_DIR}/dhcpv6-state"
 
 # Log level constants (matches syslog priorities)
 HA_LOG_LEVEL_ERROR=0
@@ -703,6 +705,7 @@ sync_interval=${sync_interval}
 peer_timeout=${peer_timeout}
 persist_interval=${persist_interval}
 log_level=${log_level}
+dhcpv6_role_file=${DHCPV6_ROLE_FILE}
 EOF
 
 	# Add bind_address if configured (prevents VIP from being used as source)
@@ -921,6 +924,12 @@ ha_manage_services() {
 # dnsmasq-ha's init script detects this file and skips the dhcp_check probe,
 # allowing both HA nodes to serve DHCP simultaneously.
 HA_DNSMASQ_OVERLAY_NAME="ha-cluster.conf"
+HA_DHCPV6_NFT_TABLE="ha_cluster_dhcpv6"
+HA_DHCPV6_NFT_INPUT_CHAIN="backup_input"
+HA_DHCPV6_NFT_OUTPUT_CHAIN="backup_output"
+HA_DHCPV6_NFT_INPUT_COMMENT="ha-cluster block DHCPv6 requests while BACKUP"
+HA_DHCPV6_NFT_OUTPUT_COMMENT="ha-cluster block DHCPv6 replies while BACKUP"
+HA_RA_NFT_OUTPUT_COMMENT="ha-cluster block IPv6 router advertisements while BACKUP"
 
 # Resolve dnsmasq's conf-dir path from UCI
 # The conf-dir path depends on the dnsmasq section name (e.g., cfg01411c)
@@ -974,6 +983,52 @@ ha_configure_dnsmasq() {
 	}
 }
 
+ha_init_dhcpv6_authority_state() {
+	local lease_sync_enabled nft="/usr/sbin/nft"
+
+	config_load ha-cluster
+	config_get_bool lease_sync_enabled dhcp sync_leases 0
+	[ "$lease_sync_enabled" -eq 1 ] || return 0
+
+	mkdir -p "$HA_CLUSTER_RUN_DIR"
+	rm -rf "$DHCPV6_STATE_DIR"
+	mkdir -p "$DHCPV6_STATE_DIR"
+	echo "BACKUP" > "$DHCPV6_ROLE_FILE"
+
+	if [ ! -x "$nft" ]; then
+		ha_log_warning "nft is not available, cannot install initial DHCPv6 BACKUP filter"
+		return 0
+	fi
+
+	"$nft" list table inet "$HA_DHCPV6_NFT_TABLE" >/dev/null 2>&1 || \
+		"$nft" add table inet "$HA_DHCPV6_NFT_TABLE"
+
+	"$nft" list chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_INPUT_CHAIN" >/dev/null 2>&1 || \
+		"$nft" add chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_INPUT_CHAIN" '{ type filter hook input priority -50; policy accept; }'
+
+	"$nft" list chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_OUTPUT_CHAIN" >/dev/null 2>&1 || \
+		"$nft" add chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_OUTPUT_CHAIN" '{ type filter hook output priority -50; policy accept; }'
+
+	"$nft" -a list chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_INPUT_CHAIN" 2>/dev/null | grep -q "$HA_DHCPV6_NFT_INPUT_COMMENT" || \
+		"$nft" add rule inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_INPUT_CHAIN" meta nfproto ipv6 udp dport 547 counter drop comment "\"$HA_DHCPV6_NFT_INPUT_COMMENT\""
+
+	"$nft" -a list chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_OUTPUT_CHAIN" 2>/dev/null | grep -q "$HA_DHCPV6_NFT_OUTPUT_COMMENT" || \
+		"$nft" add rule inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_OUTPUT_CHAIN" meta nfproto ipv6 udp sport 547 counter drop comment "\"$HA_DHCPV6_NFT_OUTPUT_COMMENT\""
+
+	"$nft" -a list chain inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_OUTPUT_CHAIN" 2>/dev/null | grep -q "$HA_RA_NFT_OUTPUT_COMMENT" || \
+		"$nft" add rule inet "$HA_DHCPV6_NFT_TABLE" "$HA_DHCPV6_NFT_OUTPUT_CHAIN" meta nfproto ipv6 ip6 nexthdr icmpv6 icmpv6 type nd-router-advert counter drop comment "\"$HA_RA_NFT_OUTPUT_COMMENT\""
+
+	ha_log "Initialized DHCPv6 authority state as BACKUP"
+}
+
+ha_clear_dhcpv6_authority_state() {
+	local nft="/usr/sbin/nft"
+
+	rm -f "$DHCPV6_ROLE_FILE"
+	rm -rf "$DHCPV6_STATE_DIR"
+	[ -x "$nft" ] && "$nft" delete table inet "$HA_DHCPV6_NFT_TABLE" >/dev/null 2>&1
+}
+
 # Removes the dnsmasq conf-dir overlay and restarts dnsmasq
 ha_release_dnsmasq() {
 	local confdir overlay_path
@@ -1011,4 +1066,3 @@ ha_apply_config() {
 	ha_log "HA cluster configuration applied successfully"
 	return 0
 }
-
