@@ -13,6 +13,7 @@
 UBUS_EVENT="dhcp.lease"
 LOG_TAG="lease-sync-hotplug"
 NODE_ID_FILE="/etc/lease-sync/node-id"
+SUPPRESS_DIR="/tmp/lease-sync/suppress"
 
 # Logging function
 log() {
@@ -34,6 +35,71 @@ sanitize_json() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+is_ipv6_lease() {
+    [ -n "$DNSMASQ_IAID" ] && return 0
+
+    case "$IPADDR" in
+        *:*) return 0 ;;
+    esac
+
+    return 1
+}
+
+action_class() {
+    case "$ACTION" in
+        add|update) echo "upsert" ;;
+        remove) echo "delete" ;;
+        *) return 1 ;;
+    esac
+}
+
+suppress_key() {
+    printf '%s' "$1" | sed 's/[^A-Za-z0-9_.-]/_/g'
+}
+
+suppress_marker_path() {
+    local class key
+
+    class="$(action_class)" || return 1
+    key="$(suppress_key "$IPADDR")"
+    printf '%s/%s_%s\n' "$SUPPRESS_DIR" "$class" "$key"
+}
+
+suppress_marker_active() {
+    local marker expires now
+
+    marker="$(suppress_marker_path)" || return 1
+    [ -f "$marker" ] || return 1
+
+    read -r expires < "$marker" || expires=0
+    now="$(date +%s)"
+
+    case "$expires" in
+        ''|*[!0-9]*) expires=0 ;;
+    esac
+
+    if [ "$expires" -ge "$now" ]; then
+        rm -f "$marker"
+        return 0
+    fi
+
+    rm -f "$marker"
+    return 1
+}
+
+validate_lease_event() {
+    [ -n "$IPADDR" ] || return 1
+
+    if is_ipv6_lease && [ "$ACTION" != "remove" ]; then
+        if [ -z "$DNSMASQ_CLIENT_ID" ] || [ -z "$DNSMASQ_IAID" ]; then
+            log warning "Ignoring DHCPv6 $ACTION event for $IPADDR without client_id/iaid"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 # Build JSON payload for ubus event
 build_lease_json() {
     local json='{'
@@ -49,7 +115,9 @@ build_lease_json() {
     # Required fields from hotplug environment
     # (HOSTNAME is untrusted DHCP client input — must sanitize)
     [ -n "$IPADDR" ] && json="${json},\"ip\":\"$IPADDR\""
-    [ -n "$MACADDR" ] && json="${json},\"mac\":\"$MACADDR\""
+    if ! is_ipv6_lease && [ -n "$MACADDR" ]; then
+        json="${json},\"mac\":\"$MACADDR\""
+    fi
     [ -n "$HOSTNAME" ] && json="${json},\"hostname\":\"$(sanitize_json "$HOSTNAME")\""
 
     # Node identification
@@ -100,7 +168,14 @@ case "$ACTION" in
     add|remove|update)
         [ -z "$IPADDR" ] && exit 0
 
-        payload=$(build_lease_json)
+        if suppress_marker_active; then
+            log info "$ACTION event for $IPADDR suppressed (lease-sync originated)"
+            exit 0
+        fi
+
+        validate_lease_event || exit 0
+
+        payload=$(build_lease_json) || exit 0
         if ubus send "$UBUS_EVENT" "$payload" 2>/dev/null; then
             log info "$ACTION event for $IPADDR published"
         else
