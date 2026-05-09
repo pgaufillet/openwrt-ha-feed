@@ -5,7 +5,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ha-cluster
 PKG_VERSION:=1.0.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=MIT
@@ -32,6 +32,10 @@ endef
 define Package/ha-cluster/conffiles
 /etc/config/ha-cluster
 /etc/ha-cluster/service_states
+/etc/hotplug.d/keepalived
+/etc/keepalived/scripts
+/etc/keepalived/keys
+/etc/keepalived.user
 endef
 
 define Build/Compile
