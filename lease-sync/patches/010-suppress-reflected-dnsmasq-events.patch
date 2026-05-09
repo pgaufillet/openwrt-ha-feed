@@ -1,0 +1,179 @@
+From: OpenWrt HA build <local>
+Subject: [PATCH] lease-sync: suppress reflected dnsmasq lease events
+
+lease-sync applies peer and reconciliation changes to dnsmasq through the
+dnsmasq-ha ubus add_lease/delete_lease methods. dnsmasq can subsequently run
+its DHCP script for those same changes. The hotplug handler publishes the
+script event as a local dhcp.lease event, so lease-sync can rebroadcast its own
+injected change and create ADD/UPDATE/DELETE ping-pong between peers.
+
+Track short-lived expectations for successful daemon-initiated dnsmasq
+operations and consume the matching reflected hotplug event by IP and action
+class. This keeps peer leases visible in local dnsmasq/DNS, keeps active/active
+synchronization intact, and makes add_lease/delete_lease symmetrical from
+lease-sync's point of view.
+
+Also treat delete_lease of an already absent dnsmasq lease as success. DELETE is
+idempotent, and retrying an already-applied peer delete only adds noise.
+
+--- a/daemon/ubus-handler.c
++++ b/daemon/ubus-handler.c
+@@ -33,6 +33,120 @@
+ 
+ extern struct daemon_state *g_state;
+ 
++#define SUPPRESSED_EVENT_RING_SIZE 64
++#define SUPPRESSED_EVENT_TTL_MS 10000
++
++#define SUPPRESSED_ACTION_UPSERT 1
++#define SUPPRESSED_ACTION_DELETE 2
++
++struct suppressed_lease_event
++{
++  char ip[INET6_ADDRSTRLEN];
++  uint8_t action;
++  uint64_t expires_ms;
++};
++
++static struct suppressed_lease_event suppressed_events[SUPPRESSED_EVENT_RING_SIZE];
++static unsigned int suppressed_event_index;
++
++static uint8_t lease_event_action_class(const char *action)
++{
++  if (!action)
++    return 0;
++
++  if (strcmp(action, "del") == 0)
++    return SUPPRESSED_ACTION_DELETE;
++
++  if (strcmp(action, "add") == 0 ||
++      strcmp(action, "update") == 0 ||
++      strcmp(action, "old") == 0)
++    return SUPPRESSED_ACTION_UPSERT;
++
++  return 0;
++}
++
++static const char *suppressed_action_name(uint8_t action)
++{
++  return action == SUPPRESSED_ACTION_DELETE ? "delete" : "upsert";
++}
++
++static void purge_expired_suppressed_events(uint64_t now)
++{
++  int i;
++
++  for (i = 0; i < SUPPRESSED_EVENT_RING_SIZE; i++)
++    {
++      if (suppressed_events[i].action != 0 &&
++          suppressed_events[i].expires_ms <= now)
++        memset(&suppressed_events[i], 0, sizeof(suppressed_events[i]));
++    }
++}
++
++static void remember_suppressed_lease_event(const char *ip, uint8_t action)
++{
++  struct suppressed_lease_event *entry;
++  uint64_t now;
++  int i;
++
++  if (!ip || !*ip || action == 0)
++    return;
++
++  now = get_timestamp_ms();
++  purge_expired_suppressed_events(now);
++
++  for (i = 0; i < SUPPRESSED_EVENT_RING_SIZE; i++)
++    {
++      entry = &suppressed_events[i];
++      if (entry->action == action && strcmp(entry->ip, ip) == 0)
++        {
++          entry->expires_ms = now + SUPPRESSED_EVENT_TTL_MS;
++          log_debug("Extended reflected %s event suppression for %s",
++                    suppressed_action_name(action), ip);
++          return;
++        }
++    }
++
++  entry = &suppressed_events[suppressed_event_index++ % SUPPRESSED_EVENT_RING_SIZE];
++  memset(entry, 0, sizeof(*entry));
++  strncpy(entry->ip, ip, sizeof(entry->ip) - 1);
++  entry->action = action;
++  entry->expires_ms = now + SUPPRESSED_EVENT_TTL_MS;
++
++  log_debug("Expecting reflected %s lease event for %s",
++            suppressed_action_name(action), ip);
++}
++
++static bool consume_suppressed_lease_event(const char *action, const char *ip)
++{
++  struct suppressed_lease_event *entry;
++  uint8_t action_class;
++  uint64_t now;
++  int i;
++
++  if (!ip || !*ip)
++    return false;
++
++  action_class = lease_event_action_class(action);
++  if (action_class == 0)
++    return false;
++
++  now = get_timestamp_ms();
++  purge_expired_suppressed_events(now);
++
++  for (i = 0; i < SUPPRESSED_EVENT_RING_SIZE; i++)
++    {
++      entry = &suppressed_events[i];
++      if (entry->action != action_class || strcmp(entry->ip, ip) != 0)
++        continue;
++
++      log_info("Suppressing reflected %s lease event for %s", action, ip);
++      memset(entry, 0, sizeof(*entry));
++      return true;
++    }
++
++  return false;
++}
++
+ static void handle_lease_event(struct ubus_context *ctx, struct ubus_event_handler *ev,
+                                const char *type, struct blob_attr *msg)
+ {
+@@ -74,6 +188,9 @@ static void handle_lease_event(struct ubus_context *ctx, struct ubus_event_handl
+ 
+   log_debug("Received ubus event: %s - %s %s", type, action, ip);
+ 
++  if (consume_suppressed_lease_event(action, ip))
++    return;
++
+   /* startup reconciliation FIX: Skip "old" events during startup reconciliation phase.
+    *
+    * Problem: When dnsmasq starts, it reads leases from dhcp.leases and emits
+@@ -335,6 +452,8 @@ int ubus_handler_inject_lease(struct lease_entry *entry)
+       return -1;
+     }
+ 
++  remember_suppressed_lease_event(entry->ip_str, SUPPRESSED_ACTION_UPSERT);
++
+   log_debug("Injected lease %s (%s) into dnsmasq",
+             entry->ip_str, entry->hostname);
+ 
+@@ -368,10 +487,18 @@ int ubus_handler_delete_lease(const char *ip)
+ 
+   if (ret)
+     {
++      if (ret == UBUS_STATUS_NOT_FOUND)
++        {
++          log_debug("Lease %s already absent from dnsmasq", ip);
++          return 0;
++        }
++
+       log_error("Failed to delete lease %s: %s", ip, ubus_strerror(ret));
+       return -1;
+     }
+ 
++  remember_suppressed_lease_event(ip, SUPPRESSED_ACTION_DELETE);
++
+   log_debug("Deleted lease %s from dnsmasq", ip);
+ 
+   return 0;
