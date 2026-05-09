@@ -26,16 +26,31 @@ add_dnsmasq_lease_env() {
 	[ -n "$DNSMASQ_IAID" ] && json_add_string "" "DNSMASQ_IAID=$DNSMASQ_IAID"
 }
 
+set_dhcpv6_client_id_from_args() {
+	# For DHCPv6 dnsmasq passes the full client-id/DUID as argument 2.
+	# Prefer it over DNSMASQ_CLIENT_ID so old/restarted leases cannot degrade
+	# to a one-byte value such as "00".
+	if is_dhcpv6_lease "$3" && [ -n "$2" ] && [ "$2" != "*" ]; then
+		DNSMASQ_CLIENT_ID="$2"
+	fi
+}
+
 json_init
 json_add_array env
 hotplugobj=""
 
 case "$1" in
-	add | del | old | arp-add | arp-del)
+	add | del | old)
 		json_add_string "" "IPADDR=$3"
-		if ! is_dhcpv6_lease "$3"; then
+		if is_dhcpv6_lease "$3"; then
+			set_dhcpv6_client_id_from_args "$@"
+		else
 			json_add_string "" "MACADDR=$2"
 		fi
+	;;
+	arp-add | arp-del)
+		json_add_string "" "IPADDR=$3"
+		json_add_string "" "MACADDR=$2"
 	;;
 esac
 

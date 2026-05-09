@@ -1,0 +1,76 @@
+From: OpenWrt HA build <local>
+Subject: [PATCH] lease-sync: reject truncated DHCPv6 client identities
+
+Treat a one-byte client-id such as "00" as incomplete DHCPv6 identity. DHCPv6
+client-id is a DUID, so keeping or forwarding a one-byte value causes peer-side
+add_lease calls to lose the real client identity.
+
+--- a/daemon/lease-db.c
++++ b/daemon/lease-db.c
+@@ -54,7 +54,7 @@ static bool lease_entry_has_valid_mac(const struct lease_entry *entry)
+ 
+ bool lease_entry_has_dhcpv6_identity(const struct lease_entry *entry)
+ {
+-  return entry && entry->af_family == AF_INET6 && entry->client_id_len > 0;
++  return entry && entry->af_family == AF_INET6 && entry->client_id_len > 1;
+ }
+ 
+ bool lease_entry_same_dhcpv6_identity(const struct lease_entry *a, const struct lease_entry *b)
+--- a/tests/test_lease_db.c
++++ b/tests/test_lease_db.c
+@@ -432,6 +432,36 @@ void test_dhcpv6_similar_duid_prefixes_do_not_conflict(void)
+ }
+ 
++/* ============================================
++ * Test: DHCPv6 one-byte client-id is incomplete
++ * ============================================ */
++void test_dhcpv6_one_byte_client_id_is_incomplete(void)
++{
++    printf("\n=== Test: DHCPv6 one-byte client-id is incomplete ===\n");
++
++    reset_state();
++
++    const unsigned char truncated[] = { 0x00 };
++    struct lease_entry lease;
++
++    make_dhcpv6_lease(&lease, "fd00:1234:abcd:1::ea4d",
++                      truncated, sizeof(truncated), 42, "nut", 1000, "node-a");
++
++    if (!lease_entry_has_dhcpv6_identity(&lease)) {
++        TEST_PASS("One-byte DHCPv6 client-id is rejected as incomplete");
++    } else {
++        TEST_FAIL("One-byte DHCPv6 client-id is rejected as incomplete",
++                  "accepted truncated client-id");
++    }
++
++    if (lease_db_add(&lease) == 0 && g_state->total_conflicts_resolved == 0) {
++        TEST_PASS("Truncated DHCPv6 client-id does not create conflict accounting");
++    } else {
++        TEST_FAIL("Truncated DHCPv6 client-id does not create conflict accounting",
++                  "unexpected add failure or conflict");
++    }
++}
++
+ /* ============================================
+  * Test: DHCPv6 wildcard MAC is not a conflict
+  * ============================================ */
+ void test_dhcpv6_wildcard_mac_not_conflict(void)
+@@ -808,6 +838,7 @@ int main(void)
+     test_lease_db_update_conflict_newer_wins();
+     test_lease_db_update_mac_conflict();
+     test_dhcpv6_similar_duid_prefixes_do_not_conflict();
++    test_dhcpv6_one_byte_client_id_is_incomplete();
+     test_dhcpv6_wildcard_mac_not_conflict();
+     test_lease_db_update_creates_new();
+     test_lease_db_delete();
+--- a/tests/test_peer_sync.c
++++ b/tests/test_peer_sync.c
+@@ -53,7 +53,7 @@ struct lease_entry *lease_db_find_dhcpv6_identity(const struct lease_entry *need
+ 
+ bool lease_entry_has_dhcpv6_identity(const struct lease_entry *entry)
+ {
+-    return entry && entry->af_family == AF_INET6 && entry->client_id_len > 0;
++    return entry && entry->af_family == AF_INET6 && entry->client_id_len > 1;
+ }
+ 
+ bool lease_entry_same_dhcpv6_identity(const struct lease_entry *a, const struct lease_entry *b)

@@ -1,0 +1,20 @@
+From: OpenWrt HA build <local>
+Subject: [PATCH] dnsmasq-ha: reject truncated DHCPv6 client-id injection
+
+DHCPv6 client-id is a DUID and must not be collapsed to a one-byte value such
+as "00". Reject incomplete client IDs at the dnsmasq ubus boundary so bad
+lease-sync state cannot be written back into dnsmasq.
+
+--- a/src/ubus.c
++++ b/src/ubus.c
+@@ -398,9 +398,9 @@
+ 
+       clid_len = parse_hex((char*)client_id, clid_bin, sizeof(clid_bin), NULL, NULL);
+-      if (clid_len <= 0)
++      if (clid_len < 2)
+ 	{
+-	  my_syslog(LOG_ERR, _("UBus add_lease: invalid DHCPv6 client_id '%s'"), client_id);
++	  my_syslog(LOG_ERR, _("UBus add_lease: invalid or truncated DHCPv6 client_id '%s'"), client_id);
+ 	  return UBUS_STATUS_INVALID_ARGUMENT;
+ 	}
+ 
