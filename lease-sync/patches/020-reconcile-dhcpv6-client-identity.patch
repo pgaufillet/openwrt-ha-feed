@@ -1,0 +1,121 @@
+--- a/daemon/common.h
++++ b/daemon/common.h
+@@ -305,6 +305,7 @@
+ int lease_db_init(void);
+ void lease_db_cleanup(void);
+ struct lease_entry *lease_db_find(const char *ip);
++struct lease_entry *lease_db_find_dhcpv6_identity_conflict(const struct lease_entry *entry);
+ int lease_db_add(struct lease_entry *entry);
+ int lease_db_update(struct lease_entry *entry);
+ int lease_db_delete(const char *ip);
+--- a/daemon/lease-db.c
++++ b/daemon/lease-db.c
+@@ -156,6 +156,35 @@
+   return NULL;
+ }
+ 
++struct lease_entry *lease_db_find_dhcpv6_identity_conflict(const struct lease_entry *new_entry)
++{
++  int i;
++
++  if (!g_state || !new_entry || new_entry->af_family != AF_INET6 ||
++      new_entry->client_id_len <= 0)
++    return NULL;
++
++  for (i = 0; i < HASH_TABLE_SIZE; i++)
++    {
++      struct lease_entry *entry = g_state->lease_table[i];
++
++      while (entry)
++        {
++          if (entry->af_family == AF_INET6 &&
++              strcmp(entry->ip_str, new_entry->ip_str) != 0 &&
++              entry->client_id_len > 0 &&
++              entry->iaid == new_entry->iaid &&
++              entry->is_temporary == new_entry->is_temporary &&
++              lease_client_id_equal(entry, new_entry))
++            return entry;
++
++          entry = entry->next;
++        }
++    }
++
++  return NULL;
++}
++
+ int lease_db_add(struct lease_entry *new_entry)
+ {
+   uint32_t index;
+--- a/daemon/peer-sync.c
++++ b/daemon/peer-sync.c
+@@ -127,6 +127,50 @@
+   entry->sequence = ntohs(msg->sequence);
+ }
+ 
++static bool reconcile_dhcpv6_identity_conflict(struct lease_entry *entry)
++{
++  struct lease_entry *conflict;
++  struct lease_entry stale;
++  char client_id[MAX_CLIENT_ID_LEN * 3];
++
++  conflict = lease_db_find_dhcpv6_identity_conflict(entry);
++  if (!conflict)
++    return true;
++
++  if (conflict->timestamp_ms >= entry->timestamp_ms)
++    {
++      log_info("Ignoring DHCPv6 lease %s: existing lease %s for same client_id/iaid is same or newer (%llu >= %llu)",
++               entry->ip_str, conflict->ip_str,
++               (unsigned long long)conflict->timestamp_ms,
++               (unsigned long long)entry->timestamp_ms);
++      return false;
++    }
++
++  memset(client_id, 0, sizeof(client_id));
++  if (!format_mac(entry->client_id, entry->client_id_len,
++                  client_id, sizeof(client_id)))
++    strncpy(client_id, "<invalid>", sizeof(client_id) - 1);
++
++  memcpy(&stale, conflict, sizeof(stale));
++  stale.next = NULL;
++
++  log_warning("DHCPv6 identity conflict for client_id %s iaid %u: replacing stale lease %s with peer lease %s",
++              client_id, entry->iaid, stale.ip_str, entry->ip_str);
++
++  lease_db_delete(stale.ip_str);
++
++  if (ubus_handler_delete_lease(stale.ip_str) < 0)
++    {
++      log_warning("Failed to delete stale DHCPv6 lease %s, queuing for retry",
++                  stale.ip_str);
++      retry_queue_add(&g_state->retry_queue, &stale, RETRY_ACTION_DELETE);
++    }
++
++  g_state->total_conflicts_resolved++;
++
++  return true;
++}
++
+ int peer_sync_init(struct daemon_state *state)
+ {
+   int sock;
+@@ -712,6 +756,9 @@
+                msg.action == SYNC_ACTION_ADD ? "ADD" : "UPDATE",
+                entry.ip_str, msg.node_id);
+ 
++      if (!reconcile_dhcpv6_identity_conflict(&entry))
++        break;
++
+       /* Check if we have a newer lease (race condition protection) */
+       existing = lease_db_find(entry.ip_str);
+       if (existing && existing->timestamp_ms >= entry.timestamp_ms)
+@@ -850,6 +897,9 @@
+ 
+       log_debug("Received SYNC_RESPONSE for %s from %s", entry.ip_str, msg.node_id);
+ 
++      if (!reconcile_dhcpv6_identity_conflict(&entry))
++        break;
++
+       /* Check if we have a newer lease (same logic as ADD/UPDATE) */
+       existing = lease_db_find(entry.ip_str);
+       if (existing && existing->timestamp_ms >= entry.timestamp_ms)

@@ -1,0 +1,80 @@
+#!/bin/sh
+
+# Keep DHCPv6 active only on the current IPv6 MASTER node. dnsmasq must keep
+# DHCPv6 initialized so lease-sync can inject peer leases over ubus, but BACKUP
+# nodes must not accept client DHCPv6 requests and allocate competing leases.
+
+[ "$TYPE" = "INSTANCE" ] || exit 0
+
+case "$NAME" in
+	*_v6) ;;
+	*) exit 0 ;;
+esac
+
+. /lib/functions.sh
+
+config_load ha-cluster
+config_get_bool enabled config enabled 0
+config_get_bool sync_leases dhcp sync_leases 0
+
+[ "$enabled" -eq 1 ] || exit 0
+[ "$sync_leases" -eq 1 ] || exit 0
+
+NFT="/usr/sbin/nft"
+TABLE="ha_cluster_dhcpv6"
+CHAIN="backup_input"
+COMMENT="ha-cluster block DHCPv6 while BACKUP"
+STATE_DIR="/tmp/ha-cluster/dhcpv6-state"
+
+safe_name="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_.-' '_')"
+mkdir -p "$STATE_DIR"
+
+case "$ACTION" in
+	MASTER|BACKUP|FAULT|STOP)
+		echo "$ACTION" > "$STATE_DIR/$safe_name"
+		;;
+	*)
+		exit 0
+		;;
+esac
+
+has_master=0
+for state_file in "$STATE_DIR"/*; do
+	[ -f "$state_file" ] || continue
+	state="$(cat "$state_file" 2>/dev/null)"
+	[ "$state" = "MASTER" ] && {
+		has_master=1
+		break
+	}
+done
+
+block_dhcpv6() {
+	if [ ! -x "$NFT" ]; then
+		logger -t ha-cluster -p daemon.warning "nft is not available, cannot block DHCPv6 on BACKUP"
+		return 1
+	fi
+
+	"$NFT" list table inet "$TABLE" >/dev/null 2>&1 || \
+		"$NFT" add table inet "$TABLE"
+
+	"$NFT" list chain inet "$TABLE" "$CHAIN" >/dev/null 2>&1 || \
+		"$NFT" add chain inet "$TABLE" "$CHAIN" '{ type filter hook input priority -50; policy accept; }'
+
+	"$NFT" -a list chain inet "$TABLE" "$CHAIN" 2>/dev/null | grep -q "$COMMENT" || \
+		"$NFT" add rule inet "$TABLE" "$CHAIN" meta nfproto ipv6 udp dport 547 counter drop comment "$COMMENT"
+
+	logger -t ha-cluster -p daemon.info "DHCPv6 server input blocked while BACKUP"
+}
+
+unblock_dhcpv6() {
+	[ -x "$NFT" ] || return 0
+
+	"$NFT" delete table inet "$TABLE" >/dev/null 2>&1
+	logger -t ha-cluster -p daemon.info "DHCPv6 server input unblocked on MASTER"
+}
+
+if [ "$has_master" -eq 1 ]; then
+	unblock_dhcpv6
+else
+	block_dhcpv6
+fi
