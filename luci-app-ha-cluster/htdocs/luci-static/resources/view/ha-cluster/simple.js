@@ -118,7 +118,7 @@ return view.extend({
 
 		// Custom handleAdd following DDNS pattern:
 		// 1. Show modal with separate form.Map (isolated from main form)
-		// 2. On Add: save main form first (preserves pending changes like node_name)
+		// 2. On Add: save main form first (preserves pending changes like node_priority)
 		// 3. Then add new peer to UCI
 		// 4. Then refresh main form (now includes saved changes + new peer)
 		s.handleAdd = function(ev) {
@@ -168,10 +168,12 @@ return view.extend({
 					nodes,
 					E('div', { 'class': 'right' }, [
 						E('button', {
+							'type': 'button',
 							'class': 'btn',
 							'click': ui.hideModal
 						}, _('Cancel')), ' ',
 						E('button', {
+							'type': 'button',
 							'class': 'cbi-button cbi-button-positive',
 							'click': function() {
 								var nameVal = peerName.formvalue('_new_');
@@ -492,7 +494,7 @@ return view.extend({
 							E('strong', {}, _('Next steps:')),
 							E('ol', { 'style': 'margin: 0.5em 0;' }, [
 								E('li', {}, _('Save & Apply changes on this router')),
-								E('li', {}, _('On each peer router, go to: HA Cluster → Quick Setup → Synchronization Settings')),
+								E('li', {}, _('On each peer router, go to: HA Cluster → General → Synchronization Settings')),
 								E('li', {}, _('Enable "Encrypt Sync Traffic"')),
 								E('li', {}, _('Paste this key into the "Encryption Key" field')),
 								E('li', {}, _('Save & Apply on all peer routers'))
@@ -500,6 +502,7 @@ return view.extend({
 						]),
 						E('div', { 'class': 'right' }, [
 							E('button', {
+								'type': 'button',
 								'class': 'btn cbi-button-positive',
 								'click': ui.hideModal
 							}, _('Close'))

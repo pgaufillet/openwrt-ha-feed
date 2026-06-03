@@ -66,16 +66,19 @@ return view.extend({
 			}, displayContent),
 			E('div', { 'class': 'right' }, [
 				E('button', {
+					'type': 'button',
 					'class': 'btn cbi-button-negative',
 					'click': ui.createHandlerFn(this, 'handleHookDeleteFromModal', filename)
 				}, _('Delete')),
 				' ',
 				E('button', {
+					'type': 'button',
 					'class': 'btn',
 					'click': ui.hideModal
 				}, _('Cancel')),
 				' ',
 				E('button', {
+					'type': 'button',
 					'class': 'btn cbi-button-positive',
 					'click': ui.createHandlerFn(this, 'handleHookSaveFromModal', filename)
 				}, _('Save'))
@@ -145,6 +148,7 @@ return view.extend({
 			E('td', { 'class': 'td' }, filename),
 			E('td', { 'class': 'td cbi-section-actions' }, [
 				E('button', {
+					'type': 'button',
 					'class': 'btn cbi-button-edit',
 					'click': ui.createHandlerFn(this, 'handleHookEdit', filename),
 					'title': _('Edit')
@@ -498,6 +502,7 @@ return view.extend({
 						})
 					]),
 					E('button', {
+						'type': 'button',
 						'class': 'cbi-button cbi-button-add',
 						'click': ui.createHandlerFn(this, 'handleHookAdd')
 					}, _('Add'))

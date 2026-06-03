@@ -4,7 +4,7 @@ Web interface for managing High Availability clusters on OpenWrt.
 
 ## Features
 
-### Quick Setup Tab
+### General Tab
 - Simple multi-router HA configuration (2 or more nodes)
 - Priority configuration
 - Peer router management
@@ -44,13 +44,12 @@ apk add luci-app-ha-cluster
 
 ```
 /www/luci-static/resources/
-├── view/ha-cluster/
-│   ├── simple.js              # Quick Setup interface
-│   ├── status.js              # Status dashboard
-│   ├── keepalived-advanced.js # Advanced VRRP settings
-│   ├── owsync-advanced.js     # Advanced config sync settings
-│   └── lease-sync-advanced.js # Advanced DHCP sync settings
-└── ha-cluster.css             # Styles
+└── view/ha-cluster/
+    ├── simple.js              # General interface
+    ├── status.js              # Status dashboard
+    ├── keepalived-advanced.js # Advanced VRRP settings
+    ├── owsync-advanced.js     # Advanced config sync settings
+    └── lease-sync-advanced.js # Advanced DHCP sync settings
 
 /usr/share/luci/menu.d/
 └── luci-app-ha-cluster.json   # Menu definition
@@ -65,10 +64,10 @@ apk add luci-app-ha-cluster
 ## Usage
 
 1. Navigate to **Services → High Availability** in LuCI
-2. Go to **Quick Setup** tab
+2. Go to **General** tab
 3. Configure:
    - Enable HA Cluster
-   - Set node name and priority
+   - Set priority
    - Add peer router IP
    - Configure Virtual IPs for each interface
    - Select services to synchronize
@@ -76,9 +75,9 @@ apk add luci-app-ha-cluster
 
 ## Screenshots
 
-### Quick Setup
+### General
 Simple form-based configuration for typical multi-router setups:
-- Cluster settings (name, priority, type)
+- Cluster settings (priority, VRRP transport)
 - Peer configuration
 - Virtual IP addresses
 - Service sync options

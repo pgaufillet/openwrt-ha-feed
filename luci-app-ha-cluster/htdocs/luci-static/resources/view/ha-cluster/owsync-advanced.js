@@ -58,6 +58,7 @@ var ChipListValue = form.Value.extend({
 		});
 
 		var addBtn = E('button', {
+			'type': 'button',
 			'class': 'cbi-button cbi-button-add',
 			'style': 'margin-left: 4px;',
 			'click': L.bind(function(ev) {
