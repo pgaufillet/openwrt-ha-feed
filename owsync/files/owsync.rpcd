@@ -33,7 +33,7 @@ case "$1" in
 
 				# Check if owsync is enabled via standalone config or ha-cluster
 				if [ -f /etc/config/owsync ]; then
-					owsync_enabled=$(uci -q get owsync.config.enabled)
+					owsync_enabled=$(uci -q get owsync.general.enabled)
 					if [ "$owsync_enabled" = "1" ]; then
 						enabled=1
 					fi
@@ -62,14 +62,25 @@ case "$1" in
 					fi
 				fi
 
-				# Get config from generated runtime config or UCI
-				# Runtime config is at /tmp/owsync.conf (when using ha-cluster)
-				if [ -f /tmp/owsync.conf ]; then
-					config_file="/tmp/owsync.conf"
-				elif [ -f /etc/owsync/owsync.conf ]; then
-					config_file="/etc/owsync/owsync.conf"
-				else
-					config_file=""
+				# Config file the running daemon uses (its -c/--config argument),
+				# else the known default locations
+				config_file=""
+				if [ -n "$svc_pid" ] && [ -r "/proc/$svc_pid/cmdline" ]; then
+					config_file=$(tr '\0' '\n' < "/proc/$svc_pid/cmdline" 2>/dev/null | awk '
+						take { print; exit }
+						$0 == "-c" || $0 == "--config" { take = 1; next }
+						/^-c./ { sub(/^-c/, ""); print; exit }
+						/^--config=/ { sub(/^--config=/, ""); print; exit }
+					')
+				fi
+				if [ -z "$config_file" ] || [ ! -f "$config_file" ]; then
+					if [ -f /tmp/owsync.conf ]; then
+						config_file="/tmp/owsync.conf"
+					elif [ -f /etc/owsync/owsync.conf ]; then
+						config_file="/etc/owsync/owsync.conf"
+					else
+						config_file=""
+					fi
 				fi
 
 				if [ -n "$config_file" ]; then
@@ -84,16 +95,16 @@ case "$1" in
 					fi
 
 					# Count peers
-					peer_count=$(grep -c "^peer=" "$config_file" 2>/dev/null || echo 0)
+					peer_count=$(grep -c "^peer=" "$config_file" 2>/dev/null) || peer_count=0
 				fi
 
 				# Fallback to UCI if config not found
 				if [ -z "$sync_dir" ] && [ -f /etc/config/owsync ]; then
-					sync_dir=$(uci -q get owsync.config.sync_dir)
+					sync_dir=$(uci -q get owsync.general.dir)
 				fi
 
 				# Default database path
-				db_path="${db_path:-/var/lib/owsync/owsync.db}"
+				db_path="${db_path:-/etc/owsync/owsync.db}"
 
 				# Get database last modified time
 				if [ -f "$db_path" ]; then

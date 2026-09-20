@@ -157,6 +157,37 @@ test_owsync_rpcd_status() {
             status_val=$(echo "$status_output" | grep '"status"' | head -1)
             warn "owsync rpcd status: $status_val on $node"
         fi
+
+        # Validate individual status fields (parsed with jsonfilter on the node)
+        local enabled_val syncdir_val peercount_val dbpath_val
+
+        enabled_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.enabled'")
+        if [ "$enabled_val" = "true" ]; then
+            pass "owsync status reports enabled=true on $node"
+        else
+            fail "owsync status enabled=$enabled_val on $node (expected true; node is an enabled cluster member)"
+        fi
+
+        syncdir_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.config.sync_dir'")
+        if [ -n "$syncdir_val" ]; then
+            pass "owsync status sync_dir=$syncdir_val on $node"
+        else
+            fail "owsync status sync_dir is empty on $node (UCI fallback broken?)"
+        fi
+
+        peercount_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.config.peer_count'")
+        if echo "$peercount_val" | grep -qE '^[0-9]+$' && [ "$peercount_val" -ge 1 ]; then
+            pass "owsync status peer_count=$peercount_val on $node (integer, >=1)"
+        else
+            fail "owsync status peer_count='$peercount_val' on $node (expected a plain integer >=1)"
+        fi
+
+        dbpath_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.database.path'")
+        if [ "$dbpath_val" = "/etc/owsync/owsync.db" ]; then
+            pass "owsync status db path=$dbpath_val on $node"
+        else
+            fail "owsync status db path=$dbpath_val on $node (expected /etc/owsync/owsync.db)"
+        fi
     done
 }
 
