@@ -67,7 +67,7 @@ endef
 
 define Package/owsync/conffiles
 /etc/config/owsync
-/etc/owsync
+/etc/owsync/
 endef
 
 define Package/owsync/prerm
