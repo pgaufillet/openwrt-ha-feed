@@ -249,11 +249,12 @@ docker build -t ha-feed-build-filogic \
 docker run --rm -v "$PWD/output:/output" ha-feed-build-filogic
 ```
 
-The `.apk` files land in `./output/<arch>/ha_feed/`. The default is x86-64 on
-OpenWrt 25.12.0; the matching SDK for any release/target is resolved and
-checksum-verified automatically. See [`docker/README.md`](docker/README.md) for
-version and target selection, index signing, and building from a local
-checkout.
+The built packages land in `./output/<arch>/ha_feed/` (`.apk` on 25.12+,
+`.ipk` on 24.10 and earlier). The default is x86-64 on OpenWrt 25.12.0; the
+matching SDK for any release/target is resolved and checksum-verified
+automatically. See [`docker/README.md`](docker/README.md) for version and
+target selection (including which release to build against for multi-device
+compatibility), index signing, and building from a local checkout.
 
 ### Setting Up the Build Environment (full buildroot)
 
@@ -272,7 +273,7 @@ make package/dnsmasq-ha/compile V=s
 make package/luci-app-ha-cluster/compile V=s
 ```
 
-Built `.apk` files are output to `bin/packages/*/ha_feed/`.
+Built packages are output to `bin/packages/*/ha_feed/`.
 
 See `scripts/setup-openwrt-buildroot.sh --help` for options (custom OpenWrt version, config file, etc.).
 
@@ -293,7 +294,7 @@ make package/dnsmasq-ha/compile
 make package/luci-app-ha-cluster/compile
 ```
 
-Built `.apk` files are in `bin/packages/<arch>/ha_feed/` (e.g., `bin/packages/aarch64_cortex-a53/ha_feed/`).
+Built packages are in `bin/packages/<arch>/ha_feed/` (e.g., `bin/packages/aarch64_cortex-a53/ha_feed/`).
 
 #### 2. Generate a Signing Key
 
@@ -315,7 +316,9 @@ make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
 
 #### 4. Deploy to a Web Server
 
-Copy the `.apk` files and index files to any directory served by an HTTP server:
+Copy the package files and index files to any directory served by an HTTP
+server (the build produces `.apk` on 25.12+, `.ipk` on 24.10 and earlier —
+adjust the glob accordingly):
 
 ```bash
 FEED_DIR=bin/packages/<arch>/ha_feed

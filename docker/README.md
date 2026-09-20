@@ -5,7 +5,7 @@ packages using the **official OpenWrt SDK**. The SDK ships a prebuilt
 cross-toolchain, so packages build in a few minutes without cloning a full
 OpenWrt buildroot or rebuilding the toolchain.
 
-Use this when you want ready-to-install `.apk` files without setting up a
+Use this when you want ready-to-install packages without setting up a
 build host by hand — build on any machine with Docker, then copy the packages
 to your routers or host them on a signed feed.
 
@@ -24,8 +24,9 @@ docker build -t ha-feed-build docker/
 docker run --rm -v "$PWD/output:/output" ha-feed-build
 ```
 
-The `.apk` files land in `./output/<arch>/ha_feed/` on the host, mirroring the
-SDK's `bin/packages/` layout.
+The built packages land in `./output/<arch>/ha_feed/` on the host, mirroring
+the SDK's `bin/packages/` layout. The file format follows the target release:
+`.apk` on 25.12 and later, `.ipk` on 24.10 and earlier.
 
 > **Rootless Podman users:** add `--userns=keep-id` so the container can write
 > to the mounted output directory, e.g.
@@ -75,6 +76,20 @@ against its published checksum, so any valid `OPENWRT_VERSION` ×
 `OPENWRT_TARGET` combination resolves without extra flags. Only stable
 `releases/` are supported (not `snapshots/`).
 
+## Which version to build against
+
+A package encodes the shared-library versions of the SDK it was built with, so
+it may fail to install on an older point release of the same branch
+(`libX.so.N: No such file or directory`).
+
+- **Building for one device:** match its exact release. Simplest and safest.
+- **Reusing the same package across several devices** on one branch at
+  different point releases: build against the **earliest** point release you
+  target (`24.10.0`, `25.12.0`, ...). Linking against the oldest library set
+  maximises install compatibility across the branch.
+- **`dnsmasq-ha`** replaces the core `dnsmasq` and is more tightly coupled to
+  its release than the userspace packages — prefer a per-release build for it.
+
 ## Building a subset of packages
 
 Pass package names as arguments to `docker run`:
@@ -88,7 +103,7 @@ Available packages: `dnsmasq-ha`, `owsync`, `lease-sync`, `ha-cluster`,
 
 ## Signing a package index
 
-To produce a signed feed index (so routers can `apk update` from an HTTP
+To produce a signed feed index (so routers can update from an HTTP
 server), mount a [usign](https://openwrt.org/docs/guide-user/security/keygen)
 private key and set `SIGN_KEY`:
 
