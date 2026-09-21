@@ -1,0 +1,700 @@
+From: OpenWrt HA build <local>
+Subject: [PATCH] lease-sync: handle DHCPv6 identity without MAC ping-pong
+
+DHCPv6 leases are identified by client-id/DUID plus IAID, not by an IPv4-style
+MAC address. Treat DHCPv6 identity separately from IPv4 MAC conflict handling,
+reject incomplete DHCPv6 peer/local events, and resolve duplicate DHCPv6
+identity leases deterministically so two nodes do not keep replacing each
+other's addresses.
+
+Also write short-lived suppression markers before daemon-initiated dnsmasq
+add_lease/delete_lease calls. The hotplug script consumes these markers before
+publishing, so reflected add/update/delete events are dropped before they can
+be re-emitted to peers.
+
+--- a/daemon/common.h	2026-05-02 14:07:33.000000000 +0300
++++ b/daemon/common.h	2026-05-09 13:17:00.383221009 +0300
+@@ -305,6 +305,11 @@
+ int lease_db_init(void);
+ void lease_db_cleanup(void);
+ struct lease_entry *lease_db_find(const char *ip);
++struct lease_entry *lease_db_find_dhcpv6_identity(const struct lease_entry *needle, const char *exclude_ip);
++bool lease_entry_has_dhcpv6_identity(const struct lease_entry *entry);
++bool lease_entry_same_dhcpv6_identity(const struct lease_entry *a, const struct lease_entry *b);
++int lease_entry_compare_dhcpv6_authority(const struct lease_entry *candidate,
++                                         const struct lease_entry *current);
+ int lease_db_add(struct lease_entry *entry);
+ int lease_db_update(struct lease_entry *entry);
+ int lease_db_delete(const char *ip);
+--- a/daemon/lease-db.c	2026-05-02 14:07:33.000000000 +0300
++++ b/daemon/lease-db.c	2026-05-09 13:17:40.303451477 +0300
+@@ -38,6 +38,83 @@
+   return hash % HASH_TABLE_SIZE;
+ }
+ 
++static bool lease_entry_has_valid_mac(const struct lease_entry *entry)
++{
++  unsigned char mac[6];
++  int len = 0;
++
++  if (!entry || !entry->mac[0])
++    return false;
++
++  if (parse_mac(entry->mac, mac, sizeof(mac), &len) < 0)
++    return false;
++
++  return len == 6;
++}
++
++bool lease_entry_has_dhcpv6_identity(const struct lease_entry *entry)
++{
++  return entry && entry->af_family == AF_INET6 && entry->client_id_len > 0;
++}
++
++bool lease_entry_same_dhcpv6_identity(const struct lease_entry *a, const struct lease_entry *b)
++{
++  if (!lease_entry_has_dhcpv6_identity(a) || !lease_entry_has_dhcpv6_identity(b))
++    return false;
++
++  if (a->iaid != b->iaid || a->is_temporary != b->is_temporary ||
++      a->client_id_len != b->client_id_len)
++    return false;
++
++  return memcmp(a->client_id, b->client_id, a->client_id_len) == 0;
++}
++
++int lease_entry_compare_dhcpv6_authority(const struct lease_entry *candidate,
++                                         const struct lease_entry *current)
++{
++  int source_cmp;
++
++  if (!candidate || !current)
++    return 0;
++
++  source_cmp = strcmp(candidate->source_node, current->source_node);
++  if (source_cmp != 0)
++    return source_cmp < 0 ? 1 : -1;
++
++  if (candidate->timestamp_ms != current->timestamp_ms)
++    return candidate->timestamp_ms > current->timestamp_ms ? 1 : -1;
++
++  source_cmp = strcmp(candidate->ip_str, current->ip_str);
++  if (source_cmp != 0)
++    return source_cmp < 0 ? 1 : -1;
++
++  return 0;
++}
++
++struct lease_entry *lease_db_find_dhcpv6_identity(const struct lease_entry *needle, const char *exclude_ip)
++{
++  int i;
++
++  if (!g_state || !lease_entry_has_dhcpv6_identity(needle))
++    return NULL;
++
++  for (i = 0; i < HASH_TABLE_SIZE; i++)
++    {
++      struct lease_entry *entry = g_state->lease_table[i];
++
++      while (entry)
++        {
++          if ((!exclude_ip || strcmp(entry->ip_str, exclude_ip) != 0) &&
++              lease_entry_same_dhcpv6_identity(entry, needle))
++            return entry;
++
++          entry = entry->next;
++        }
++    }
++
++  return NULL;
++}
++
+ int lease_db_init(void)
+ {
+   if (!g_state)
+@@ -183,9 +260,39 @@
+           struct lease_entry *next;
+           bool was_local;
+           bool is_local;
++          bool both_dhcpv6 = (entry->af_family == AF_INET6 && new_entry->af_family == AF_INET6);
++
++          if (both_dhcpv6)
++            {
++              if (!lease_entry_has_dhcpv6_identity(new_entry) &&
++                  lease_entry_has_dhcpv6_identity(entry))
++                {
++                  log_debug("Ignoring DHCPv6 lease update for %s with incomplete client identity",
++                            new_entry->ip_str);
++                  return 0;
++                }
++
++              if (lease_entry_has_dhcpv6_identity(entry) &&
++                  lease_entry_has_dhcpv6_identity(new_entry) &&
++                  !lease_entry_same_dhcpv6_identity(entry, new_entry))
++                {
++                  if (lease_entry_compare_dhcpv6_authority(new_entry, entry) <= 0)
++                    {
++                      log_info("Ignoring DHCPv6 identity conflict for %s: keeping lease from %s",
++                               entry->ip_str, entry->source_node);
++                      return 0;
++                    }
++
++                  log_warning("Conflict detected for %s: DHCPv6 identity changed (resolving by node authority)",
++                              entry->ip_str);
++                  g_state->total_conflicts_resolved++;
++                }
++            }
+ 
+-          /* Conflict resolution: newer timestamp wins */
+-          if (new_entry->timestamp_ms <= entry->timestamp_ms)
++          /* Conflict resolution: newer timestamp wins unless DHCPv6 authority
++           * logic above has already selected a different identity winner. */
++          if ((!both_dhcpv6 || lease_entry_same_dhcpv6_identity(entry, new_entry)) &&
++              new_entry->timestamp_ms <= entry->timestamp_ms)
+             {
+               log_debug("Ignoring older lease update for %s (local: %llu, remote: %llu)",
+                         new_entry->ip_str,
+@@ -194,8 +301,12 @@
+               return 0;  /* Not an error, just ignored */
+             }
+ 
+-          /* Check if MAC changed (conflict) */
+-          if (strcmp(entry->mac, new_entry->mac) != 0)
++          /* Check if MAC changed (IPv4 only). DHCPv6 identity is client_id + IAID;
++           * wildcard, empty, or malformed MAC-like strings are not conflicts. */
++          if (!both_dhcpv6 &&
++              lease_entry_has_valid_mac(entry) &&
++              lease_entry_has_valid_mac(new_entry) &&
++              strcmp(entry->mac, new_entry->mac) != 0)
+             {
+               log_warning("Conflict detected for %s: MAC changed from %s to %s (resolving by timestamp)",
+                           entry->ip_str, entry->mac, new_entry->mac);
+--- a/daemon/peer-sync.c	2026-05-02 14:07:33.000000000 +0300
++++ b/daemon/peer-sync.c	2026-05-09 13:18:55.759247177 +0300
+@@ -127,6 +127,54 @@
+   entry->sequence = ntohs(msg->sequence);
+ }
+ 
++static bool resolve_dhcpv6_identity_conflict(struct lease_entry *entry)
++{
++  struct lease_entry *conflict;
++
++  if (!lease_entry_has_dhcpv6_identity(entry))
++    {
++      if (entry->af_family == AF_INET6)
++        log_warning("Ignoring DHCPv6 lease %s from %s with incomplete client identity",
++                    entry->ip_str, entry->source_node);
++      return entry->af_family != AF_INET6;
++    }
++
++  conflict = lease_db_find_dhcpv6_identity(entry, entry->ip_str);
++  if (!conflict)
++    return true;
++
++  if (lease_entry_compare_dhcpv6_authority(entry, conflict) <= 0)
++    {
++      log_info("Ignoring DHCPv6 lease %s from %s; keeping %s from %s for same client identity",
++               entry->ip_str, entry->source_node, conflict->ip_str,
++               conflict->source_node);
++      peer_sync_broadcast_lease(conflict, SYNC_ACTION_UPDATE);
++      return false;
++    }
++  else
++    {
++      char stale_ip[INET6_ADDRSTRLEN];
++
++      strncpy(stale_ip, conflict->ip_str, sizeof(stale_ip) - 1);
++      stale_ip[sizeof(stale_ip) - 1] = '\0';
++
++      log_warning("Replacing DHCPv6 lease %s from %s with %s from %s for same client identity",
++                  stale_ip, conflict->source_node, entry->ip_str, entry->source_node);
++
++      lease_db_delete(stale_ip);
++      if (ubus_handler_delete_lease(stale_ip) < 0)
++        {
++          struct lease_entry stale;
++
++          memset(&stale, 0, sizeof(stale));
++          strncpy(stale.ip_str, stale_ip, sizeof(stale.ip_str) - 1);
++          retry_queue_add(&g_state->retry_queue, &stale, RETRY_ACTION_DELETE);
++        }
++    }
++
++  return true;
++}
++
+ int peer_sync_init(struct daemon_state *state)
+ {
+   int sock;
+@@ -712,6 +760,9 @@
+                msg.action == SYNC_ACTION_ADD ? "ADD" : "UPDATE",
+                entry.ip_str, msg.node_id);
+ 
++      if (entry.af_family == AF_INET6 && !resolve_dhcpv6_identity_conflict(&entry))
++        break;
++
+       /* Check if we have a newer lease (race condition protection) */
+       existing = lease_db_find(entry.ip_str);
+       if (existing && existing->timestamp_ms >= entry.timestamp_ms)
+@@ -850,6 +901,9 @@
+ 
+       log_debug("Received SYNC_RESPONSE for %s from %s", entry.ip_str, msg.node_id);
+ 
++      if (entry.af_family == AF_INET6 && !resolve_dhcpv6_identity_conflict(&entry))
++        break;
++
+       /* Check if we have a newer lease (same logic as ADD/UPDATE) */
+       existing = lease_db_find(entry.ip_str);
+       if (existing && existing->timestamp_ms >= entry.timestamp_ms)
+--- a/daemon/ubus-handler.c	2026-05-09 13:29:29.125546455 +0300
++++ b/daemon/ubus-handler.c	2026-05-09 13:18:38.785075658 +0300
+@@ -25,6 +25,8 @@
+ #include <string.h>
+ #include <unistd.h>
+ #include <errno.h>
++#include <ctype.h>
++#include <sys/stat.h>
+ #include <libubox/blobmsg_json.h>
+ #include <libubus.h>
+ 
+@@ -35,6 +37,8 @@
+ 
+ #define SUPPRESSED_EVENT_RING_SIZE 64
+ #define SUPPRESSED_EVENT_TTL_MS 10000
++#define SUPPRESSED_EVENT_PARENT_DIR "/tmp/lease-sync"
++#define SUPPRESSED_EVENT_DIR "/tmp/lease-sync/suppress"
+ 
+ #define SUPPRESSED_ACTION_UPSERT 1
+ #define SUPPRESSED_ACTION_DELETE 2
+@@ -49,6 +53,66 @@
+ static struct suppressed_lease_event suppressed_events[SUPPRESSED_EVENT_RING_SIZE];
+ static unsigned int suppressed_event_index;
+ 
++static const char *suppressed_action_name(uint8_t action);
++
++static void build_suppressed_event_path(const char *ip, uint8_t action, char *path, size_t path_len)
++{
++  char key[INET6_ADDRSTRLEN * 2];
++  size_t pos = 0;
++  const unsigned char *p;
++
++  if (!path || path_len == 0)
++    return;
++
++  if (!ip)
++    ip = "";
++
++  for (p = (const unsigned char *)ip; *p && pos < sizeof(key) - 1; p++)
++    {
++      if (isalnum(*p) || *p == '.' || *p == '_' || *p == '-')
++        key[pos++] = (char)*p;
++      else
++        key[pos++] = '_';
++    }
++  key[pos] = '\0';
++
++  snprintf(path, path_len, "%s/%s_%s", SUPPRESSED_EVENT_DIR,
++           suppressed_action_name(action), key);
++}
++
++static void write_suppressed_event_marker(const char *ip, uint8_t action, uint64_t expires_ms)
++{
++  char path[sizeof(SUPPRESSED_EVENT_DIR) + INET6_ADDRSTRLEN * 2 + 16];
++  FILE *f;
++
++  if (!ip || !*ip || action == 0)
++    return;
++
++  if (mkdir(SUPPRESSED_EVENT_PARENT_DIR, 0755) < 0 && errno != EEXIST)
++    return;
++  if (mkdir(SUPPRESSED_EVENT_DIR, 0755) < 0 && errno != EEXIST)
++    return;
++
++  build_suppressed_event_path(ip, action, path, sizeof(path));
++  f = fopen(path, "w");
++  if (!f)
++    return;
++
++  fprintf(f, "%llu\n", (unsigned long long)((expires_ms + 999) / 1000));
++  fclose(f);
++}
++
++static void remove_suppressed_event_marker(const char *ip, uint8_t action)
++{
++  char path[sizeof(SUPPRESSED_EVENT_DIR) + INET6_ADDRSTRLEN * 2 + 16];
++
++  if (!ip || !*ip || action == 0)
++    return;
++
++  build_suppressed_event_path(ip, action, path, sizeof(path));
++  unlink(path);
++}
++
+ static uint8_t lease_event_action_class(const char *action)
+ {
+   if (!action)
+@@ -100,6 +164,7 @@
+       if (entry->action == action && strcmp(entry->ip, ip) == 0)
+         {
+           entry->expires_ms = now + SUPPRESSED_EVENT_TTL_MS;
++          write_suppressed_event_marker(ip, action, entry->expires_ms);
+           log_debug("Extended reflected %s event suppression for %s",
+                     suppressed_action_name(action), ip);
+           return;
+@@ -111,11 +176,29 @@
+   strncpy(entry->ip, ip, sizeof(entry->ip) - 1);
+   entry->action = action;
+   entry->expires_ms = now + SUPPRESSED_EVENT_TTL_MS;
++  write_suppressed_event_marker(ip, action, entry->expires_ms);
+ 
+   log_debug("Expecting reflected %s lease event for %s",
+             suppressed_action_name(action), ip);
+ }
+ 
++static void forget_suppressed_lease_event(const char *ip, uint8_t action)
++{
++  int i;
++
++  if (!ip || !*ip || action == 0)
++    return;
++
++  for (i = 0; i < SUPPRESSED_EVENT_RING_SIZE; i++)
++    {
++      if (suppressed_events[i].action == action &&
++          strcmp(suppressed_events[i].ip, ip) == 0)
++        memset(&suppressed_events[i], 0, sizeof(suppressed_events[i]));
++    }
++
++  remove_suppressed_event_marker(ip, action);
++}
++
+ static bool consume_suppressed_lease_event(const char *action, const char *ip)
+ {
+   struct suppressed_lease_event *entry;
+@@ -140,6 +223,7 @@
+         continue;
+ 
+       log_info("Suppressing reflected %s lease event for %s (local ubus event ignored; not broadcast to peers)", action, ip);
++      remove_suppressed_event_marker(ip, action_class);
+       memset(entry, 0, sizeof(*entry));
+       return true;
+     }
+@@ -225,6 +309,14 @@
+       uint64_t expected_ts = 0;
+       struct lease_entry *existing = lease_db_find(ip);
+ 
++      if (existing && existing->af_family == AF_INET6 &&
++          strcmp(existing->source_node, g_state->config.node_id) != 0)
++        {
++          lease_db_delete(ip);
++          log_info("Suppressing local DELETE for peer-owned DHCPv6 lease: %s", ip);
++          return;
++        }
++
+       if (existing)
+         {
+           expected_ts = existing->timestamp_ms;
+@@ -270,6 +362,8 @@
+   if (strcmp(action, "add") == 0 || strcmp(action, "update") == 0 || strcmp(action, "old") == 0)
+     {
+       struct lease_entry entry;
++      struct lease_entry *existing;
++      struct lease_entry *identity_conflict;
+       uint8_t sync_action;
+ 
+       memset(&entry, 0, sizeof(entry));
+@@ -283,8 +377,10 @@
+       strncpy(entry.ip_str, ip, sizeof(entry.ip_str) - 1);
+ 
+       /* MAC address */
+-      if (tb[2])
++      if (tb[2] && entry.af_family == AF_INET)
+         strncpy(entry.mac, blobmsg_get_string(tb[2]), sizeof(entry.mac) - 1);
++      else if (tb[2] && entry.af_family == AF_INET6)
++        log_debug("Ignoring DHCPv6 MAC-like script argument for %s", entry.ip_str);
+ 
+       /* Hostname */
+       if (tb[3])
+@@ -326,6 +422,52 @@
+       strncpy(entry.source_node, g_state->config.node_id, MAX_NODE_ID_LEN - 1);
+       entry.timestamp_ms = get_timestamp_ms();
+ 
++      if (entry.af_family == AF_INET6)
++        {
++          existing = lease_db_find(entry.ip_str);
++
++          if (!lease_entry_has_dhcpv6_identity(&entry))
++            {
++              log_warning("Ignoring DHCPv6 %s for %s with incomplete client identity",
++                          action, entry.ip_str);
++              return;
++            }
++
++          if (existing &&
++              strcmp(existing->source_node, g_state->config.node_id) != 0 &&
++              lease_entry_same_dhcpv6_identity(existing, &entry))
++            {
++              log_info("Suppressing local DHCPv6 %s for peer-owned lease %s from %s",
++                       action, entry.ip_str, existing->source_node);
++              return;
++            }
++
++          identity_conflict = lease_db_find_dhcpv6_identity(&entry, entry.ip_str);
++          if (identity_conflict)
++            {
++              if (lease_entry_compare_dhcpv6_authority(&entry, identity_conflict) <= 0)
++                {
++                  log_info("Deleting non-authoritative local DHCPv6 lease %s; keeping %s from %s",
++                           entry.ip_str, identity_conflict->ip_str,
++                           identity_conflict->source_node);
++                  ubus_handler_delete_lease(entry.ip_str);
++                  return;
++                }
++              else
++                {
++                  char stale_ip[INET6_ADDRSTRLEN];
++
++                  strncpy(stale_ip, identity_conflict->ip_str, sizeof(stale_ip) - 1);
++                  stale_ip[sizeof(stale_ip) - 1] = '\0';
++
++                  log_warning("Replacing DHCPv6 lease %s with %s for same client identity",
++                              stale_ip, entry.ip_str);
++                  lease_db_delete(stale_ip);
++                  ubus_handler_delete_lease(stale_ip);
++                }
++            }
++        }
++
+       /* Add/update in local database */
+       if (strcmp(action, "add") == 0)
+         lease_db_add(&entry);
+@@ -409,8 +551,25 @@
+   blob_buf_init(&b, 0);
+ 
+   blobmsg_add_string(&b, "ip", entry->ip_str);
+-  blobmsg_add_string(&b, "mac", entry->mac);
+   blobmsg_add_string(&b, "hostname", entry->hostname);
++
++  if (entry->af_family == AF_INET)
++    {
++      if (!entry->mac[0])
++        {
++          log_error("Refusing to inject IPv4 lease %s without MAC", entry->ip_str);
++          blob_buf_free(&b);
++          return -1;
++        }
++      blobmsg_add_string(&b, "mac", entry->mac);
++    }
++  else if (!lease_entry_has_dhcpv6_identity(entry))
++    {
++      log_error("Refusing to inject DHCPv6 lease %s without client_id", entry->ip_str);
++      blob_buf_free(&b);
++      return -1;
++    }
++
+   /* Convert absolute timestamp to duration (dnsmasq add_lease expects seconds remaining) */
+   now = time(NULL);
+   duration = (entry->expires > now) ? (uint32_t)(entry->expires - now) : 0;
+@@ -442,18 +601,19 @@
+         blobmsg_add_string(&b, "client_id", clid_str);
+     }
+ 
++  remember_suppressed_lease_event(entry->ip_str, SUPPRESSED_ACTION_UPSERT);
++
+   /* Call dnsmasq.add_lease */
+   ret = ubus_invoke(g_state->ubus_ctx, id, "add_lease", b.head, NULL, NULL, 3000);
+   blob_buf_free(&b);
+ 
+   if (ret)
+     {
++      forget_suppressed_lease_event(entry->ip_str, SUPPRESSED_ACTION_UPSERT);
+       log_error("Failed to inject lease %s: %s", entry->ip_str, ubus_strerror(ret));
+       return -1;
+     }
+ 
+-  remember_suppressed_lease_event(entry->ip_str, SUPPRESSED_ACTION_UPSERT);
+-
+   log_debug("Injected lease %s (%s) into dnsmasq",
+             entry->ip_str, entry->hostname);
+ 
+@@ -481,12 +641,16 @@
+   blob_buf_init(&b, 0);
+   blobmsg_add_string(&b, "ip", ip);
+ 
++  remember_suppressed_lease_event(ip, SUPPRESSED_ACTION_DELETE);
++
+   /* Call dnsmasq.delete_lease */
+   ret = ubus_invoke(g_state->ubus_ctx, id, "delete_lease", b.head, NULL, NULL, 3000);
+   blob_buf_free(&b);
+ 
+   if (ret)
+     {
++      forget_suppressed_lease_event(ip, SUPPRESSED_ACTION_DELETE);
++
+       if (ret == UBUS_STATUS_NOT_FOUND)
+         {
+           log_debug("Lease %s already absent from dnsmasq", ip);
+@@ -497,8 +661,6 @@
+       return -1;
+     }
+ 
+-  remember_suppressed_lease_event(ip, SUPPRESSED_ACTION_DELETE);
+-
+   log_debug("Deleted lease %s from dnsmasq", ip);
+ 
+   return 0;
+--- a/tests/test_lease_db.c	2026-05-02 14:07:33.000000000 +0300
++++ b/tests/test_lease_db.c	2026-05-09 13:21:07.450998756 +0300
+@@ -67,6 +67,24 @@
+     lease->expires = time(NULL) + 3600;  /* 1 hour from now */
+ }
+ 
++static void make_dhcpv6_lease(struct lease_entry *lease, const char *ip,
++                              const unsigned char *client_id, int client_id_len,
++                              uint32_t iaid, const char *hostname,
++                              uint64_t timestamp, const char *source)
++{
++    memset(lease, 0, sizeof(*lease));
++    strncpy(lease->ip_str, ip, sizeof(lease->ip_str) - 1);
++    strncpy(lease->hostname, hostname, sizeof(lease->hostname) - 1);
++    strncpy(lease->source_node, source, sizeof(lease->source_node) - 1);
++    lease->timestamp_ms = timestamp;
++    lease->af_family = AF_INET6;
++    lease->expires = time(NULL) + 3600;
++    lease->iaid = iaid;
++    lease->is_temporary = false;
++    memcpy(lease->client_id, client_id, client_id_len);
++    lease->client_id_len = client_id_len;
++}
++
+ /* Callback for iteration test */
+ static int iteration_count = 0;
+ static void count_callback(struct lease_entry *entry, void *user_data)
+@@ -372,6 +390,83 @@
+ }
+ 
+ /* ============================================
++ * Test: DHCPv6 DUID prefix must not be treated as MAC
++ * ============================================ */
++void test_dhcpv6_similar_duid_prefixes_do_not_conflict(void)
++{
++    printf("\n=== Test: DHCPv6 similar DUID prefixes do not conflict ===\n");
++
++    reset_state();
++
++    const unsigned char duid1[] = {
++        0x00, 0x04, 0xff, 0xeb, 0xd5, 0x7c, 0xfd, 0x47,
++        0xd5, 0x30, 0x28, 0xb5, 0x19, 0x3e, 0xce, 0xcd,
++        0x8b, 0x88
++    };
++    const unsigned char duid2[] = {
++        0x00, 0x04, 0xff, 0xeb, 0xd5, 0x7c, 0x01, 0x18,
++        0x67, 0xef, 0x5f, 0x00, 0x99, 0xaa, 0xbb, 0xcc,
++        0xdd, 0xee
++    };
++    struct lease_entry lease;
++
++    make_dhcpv6_lease(&lease, "fd00:1234:abcd:1::e1a0",
++                      duid1, sizeof(duid1), 42, "nut", 1000, "node-a");
++    lease_db_add(&lease);
++
++    make_dhcpv6_lease(&lease, "fd00:1234:abcd:1::ea4d",
++                      duid2, sizeof(duid2), 42, "mangopimcore", 2000, "node-b");
++    lease_db_add(&lease);
++
++    if (lease_db_count() == 2) {
++        TEST_PASS("Both DHCPv6 leases are stored independently");
++    } else {
++        TEST_FAIL("Both DHCPv6 leases are stored independently", "lease count changed");
++    }
++
++    if (g_state->total_conflicts_resolved == 0) {
++        TEST_PASS("Similar DUID prefixes did not increment conflict counter");
++    } else {
++        TEST_FAIL("Similar DUID prefixes did not increment conflict counter",
++                  "false conflict detected");
++    }
++}
++
++/* ============================================
++ * Test: DHCPv6 wildcard MAC is not a conflict
++ * ============================================ */
++void test_dhcpv6_wildcard_mac_not_conflict(void)
++{
++    printf("\n=== Test: DHCPv6 wildcard MAC is not a conflict ===\n");
++
++    reset_state();
++
++    const unsigned char duid[] = {
++        0x00, 0x04, 0xe6, 0xf8, 0xc8, 0x8f, 0xa8, 0x5f,
++        0xd8, 0x18, 0x25, 0x59, 0x60, 0x2d, 0xe4, 0xb5,
++        0xfc, 0x2e
++    };
++    struct lease_entry lease;
++
++    make_dhcpv6_lease(&lease, "fd00:1234:abcd:1::ea4e",
++                      duid, sizeof(duid), 7, "nut", 1000, "node-a");
++    snprintf(lease.mac, sizeof(lease.mac), "00:04:e6:f8:c8:8f");
++    lease_db_add(&lease);
++
++    make_dhcpv6_lease(&lease, "fd00:1234:abcd:1::ea4e",
++                      duid, sizeof(duid), 7, "nut", 2000, "node-a");
++    snprintf(lease.mac, sizeof(lease.mac), "*");
++    lease_db_update(&lease);
++
++    if (g_state->total_conflicts_resolved == 0) {
++        TEST_PASS("DHCPv6 MAC-like wildcard did not create conflict");
++    } else {
++        TEST_FAIL("DHCPv6 MAC-like wildcard did not create conflict",
++                  "conflict counter incremented");
++    }
++}
++
++/* ============================================
+  * Test: lease_db_update - Non-existent creates new
+  * ============================================ */
+ void test_lease_db_update_creates_new(void)
+@@ -712,6 +807,8 @@
+     test_lease_db_update_basic();
+     test_lease_db_update_conflict_newer_wins();
+     test_lease_db_update_mac_conflict();
++    test_dhcpv6_similar_duid_prefixes_do_not_conflict();
++    test_dhcpv6_wildcard_mac_not_conflict();
+     test_lease_db_update_creates_new();
+     test_lease_db_delete();
+     test_lease_db_cleanup();
+--- a/tests/test_peer_sync.c	2026-05-02 14:07:33.000000000 +0300
++++ b/tests/test_peer_sync.c	2026-05-09 13:19:52.864519639 +0300
+@@ -46,6 +46,32 @@
+     return NULL;
+ }
+ 
++struct lease_entry *lease_db_find_dhcpv6_identity(const struct lease_entry *needle __attribute__((unused)),
++                                                  const char *exclude_ip __attribute__((unused)))
++{
++    return NULL;
++}
++
++bool lease_entry_has_dhcpv6_identity(const struct lease_entry *entry)
++{
++    return entry && entry->af_family == AF_INET6 && entry->client_id_len > 0;
++}
++
++bool lease_entry_same_dhcpv6_identity(const struct lease_entry *a, const struct lease_entry *b)
++{
++    return lease_entry_has_dhcpv6_identity(a) &&
++           lease_entry_has_dhcpv6_identity(b) &&
++           a->iaid == b->iaid &&
++           a->client_id_len == b->client_id_len &&
++           memcmp(a->client_id, b->client_id, a->client_id_len) == 0;
++}
++
++int lease_entry_compare_dhcpv6_authority(const struct lease_entry *candidate __attribute__((unused)),
++                                         const struct lease_entry *current __attribute__((unused)))
++{
++    return 0;
++}
++
+ int lease_db_add(struct lease_entry *entry __attribute__((unused)))
+ {
+     return 0;
