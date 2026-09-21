@@ -476,20 +476,16 @@ return view.extend({
 			_('Select which /etc/config files to synchronize and how synchronization is performed.'));
 
 		// Encryption settings first
-		o = s.option(form.Flag, 'sync_encryption', _('Encrypt Sync Traffic'),
-			_('Enable AES-256-GCM encryption for configuration sync (owsync) and DHCP lease sync (lease-sync). Recommended for security.'));
-		o.default = '1';
-
+		// Setting a key enables AES-256-GCM for owsync and lease-sync; leaving
+		// it empty runs sync in plaintext.
 		var encryption_key_option = s.option(form.Value, 'encryption_key', _('Encryption Key'),
-			_('256-bit AES encryption key (64 hexadecimal characters). Used by both owsync and lease-sync. Must be identical on all cluster nodes.'));
-		encryption_key_option.depends('sync_encryption', '1');
+			_('256-bit AES encryption key (64 hexadecimal characters) for configuration sync (owsync) and DHCP lease sync (lease-sync). Must be identical on all cluster nodes. Leave empty to disable encryption.'));
 		encryption_key_option.password = true;
 		encryption_key_option.datatype = 'and(hexstring,rangelength(64,64))';
 		encryption_key_option.rmempty = true;
 		encryption_key_option.placeholder = 'Click "Generate New Key" button below to create a secure random key';
 
 		o = s.option(form.Button, '_generate_key', _('Generate New Key'));
-		o.depends('sync_encryption', '1');
 		o.inputtitle = _('Generate New Key');
 		o.inputstyle = 'action';
 		o.onclick = function(section_id) {

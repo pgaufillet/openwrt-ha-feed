@@ -138,8 +138,7 @@ All configuration lives in `/etc/config/ha-cluster`.
 | `node_priority` | int | `100` | VRRP priority (1-255, higher wins MASTER) |
 | `vrrp_transport` | string | `multicast` | VRRP transport: `multicast` or `unicast`. When `unicast`, auto-derives addresses from peer config |
 | `sync_method` | string | `owsync` | Sync backend: `owsync` or `none` |
-| `sync_encryption` | bool | `1` | Encrypt owsync traffic (AES-256-GCM) |
-| `encryption_key` | string | | 256-bit hex key (use LuCI "Generate" button or `hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom`) |
+| `encryption_key` | string | | 256-bit hex key enabling AES-256-GCM (empty = plaintext); use LuCI "Generate" button or `hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom` |
 | `sync_port` | int | `4321` | owsync TCP port |
 | `sync_dir` | string | `/etc/config` | Directory to synchronize |
 | `bind_address` | string | | Local IP for sync traffic (use real IP, not VIP) |
