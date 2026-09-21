@@ -31,7 +31,6 @@ endef
 
 define Package/ha-cluster/conffiles
 /etc/config/ha-cluster
-/etc/ha-cluster/service_states
 endef
 
 define Build/Compile
