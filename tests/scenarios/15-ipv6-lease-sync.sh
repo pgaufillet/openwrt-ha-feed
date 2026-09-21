@@ -530,6 +530,47 @@ test_lease_sync_crash_recovery() {
 # Cleanup
 # ============================================
 
+# Regression: add_lease must reject a mismatched is_temporary against an
+# existing DHCPv6 lease's IA type (LEASE_NA/LEASE_TA), the same way it rejects a
+# mismatched iaid. A matching is_temporary must still succeed. The IA type of an
+# address is immutable for the life of the lease, so a mismatch is a caller error.
+test_is_temporary_mismatch_rejected() {
+    subheader "add_lease rejects is_temporary mismatch on existing lease"
+
+    local ip="fd00:192:168:50::dead:beef"
+    local mac="02:aa:bb:cc:dd:ee"
+    local iaid=1
+    local expires=3600
+    local rc=0
+
+    # Clean slate for this address
+    exec_node "$NODE1" ubus call dnsmasq delete_lease "{\"ip\":\"$ip\"}" >/dev/null 2>&1 || true
+
+    # Baseline: create a normal (non-temporary, IA_NA) lease
+    if ! exec_node "$NODE1" ubus call dnsmasq add_lease \
+        "{\"ip\":\"$ip\",\"mac\":\"$mac\",\"iaid\":$iaid,\"is_temporary\":false,\"expires\":$expires}" \
+        >/dev/null 2>&1; then
+        skip "is_temporary mismatch check" "could not create baseline IA_NA lease (DHCPv6 may be unavailable)"
+        return 0
+    fi
+
+    # New behavior: re-adding the same address as temporary (IA_TA) must be rejected
+    assert_failure "add_lease rejects is_temporary mismatch on existing lease" \
+        exec_node "$NODE1" ubus call dnsmasq add_lease \
+        "{\"ip\":\"$ip\",\"mac\":\"$mac\",\"iaid\":$iaid,\"is_temporary\":true,\"expires\":$expires}" \
+        || rc=1
+
+    # Non-regression: re-adding with the matching IA type must still succeed
+    assert_success "add_lease accepts matching is_temporary on existing lease" \
+        exec_node "$NODE1" ubus call dnsmasq add_lease \
+        "{\"ip\":\"$ip\",\"mac\":\"$mac\",\"iaid\":$iaid,\"is_temporary\":false,\"expires\":$expires}" \
+        || rc=1
+
+    exec_node "$NODE1" ubus call dnsmasq delete_lease "{\"ip\":\"$ip\"}" >/dev/null 2>&1 || true
+
+    return $rc
+}
+
 cleanup() {
     subheader "Cleanup"
 
@@ -571,6 +612,9 @@ main() {
     # Field format validation (validates the dhcp-script-ha.sh fix)
     run_nonfatal test_iaid_field_format "ubus event capture may not work in all environments"
     run_nonfatal test_is_temporary_field_format "ubus event capture may not work in all environments"
+
+    # ubus method-level validation (dnsmasq add_lease is_temporary/IA-type guard)
+    test_is_temporary_mismatch_rejected || result=1
 
     # Sync tests
     test_ipv6_lease_sync_to_peer || result=1

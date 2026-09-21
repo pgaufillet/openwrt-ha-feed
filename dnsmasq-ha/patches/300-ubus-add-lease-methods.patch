@@ -27,7 +27,7 @@ index 00748ad..74ab1f3 100644
  {
    FILE *leasestream;
 diff --git a/src/ubus.c b/src/ubus.c
-index b30f2b6..6d1865c 100644
+index b30f2b6..347ebe5 100644
 --- a/src/ubus.c
 +++ b/src/ubus.c
 @@ -27,6 +27,48 @@ static int ubus_handle_metrics(struct ubus_context *ctx, struct ubus_object *obj
@@ -91,7 +91,7 @@ index b30f2b6..6d1865c 100644
  #ifdef HAVE_CONNTRACK
    UBUS_METHOD("set_connmark_allowlist", ubus_handle_set_connmark_allowlist, set_connmark_allowlist_policy),
  #endif
-@@ -195,10 +242,301 @@ static int ubus_handle_metrics(struct ubus_context *ctx, struct ubus_object *obj
+@@ -195,10 +242,307 @@ static int ubus_handle_metrics(struct ubus_context *ctx, struct ubus_object *obj
  
    for (i=0; i < __METRIC_MAX; i++)
      CHECK(blobmsg_add_u32(&b, get_metric_name(i), daemon->metrics[i]));
@@ -214,6 +214,12 @@ index b30f2b6..6d1865c 100644
 +	    {
 +	      my_syslog(LOG_ERR, _("UBus add_lease: iaid %u does not match existing lease for %s"),
 +			ia_id, ipaddr);
++	      return UBUS_STATUS_INVALID_ARGUMENT;
++	    }
++	  if (!!(lease->flags & LEASE_TA) != !!is_temporary)
++	    {
++	      my_syslog(LOG_ERR, _("UBus add_lease: is_temporary does not match existing lease for %s"),
++			ipaddr);
 +	      return UBUS_STATUS_INVALID_ARGUMENT;
 +	    }
 +	}
