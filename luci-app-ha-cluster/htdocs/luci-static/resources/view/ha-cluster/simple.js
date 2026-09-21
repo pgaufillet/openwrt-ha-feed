@@ -523,7 +523,6 @@ return view.extend({
 							E('ol', { 'style': 'margin: 0.5em 0;' }, [
 								E('li', {}, _('Save & Apply changes on this router')),
 								E('li', {}, _('On each peer router, go to: HA Cluster → General → Synchronization Settings')),
-								E('li', {}, _('Enable "Encrypt Sync Traffic"')),
 								E('li', {}, _('Paste this key into the "Encryption Key" field')),
 								E('li', {}, _('Save & Apply on all peer routers'))
 							])
