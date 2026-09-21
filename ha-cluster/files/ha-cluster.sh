@@ -878,8 +878,10 @@ ha_manage_services() {
 		# Save current state and disable standalone services
 		ha_log "Taking over service management from standalone init scripts"
 
-		# Clear previous state file
-		rm -f "$state_file"
+		# State already captured (e.g. on reload): the services are already
+		# disabled, so re-capturing would record them as disabled and release
+		# could no longer restore their original state.
+		[ -f "$state_file" ] && return 0
 
 		for service in keepalived owsync lease-sync; do
 			if [ -x "/etc/init.d/$service" ]; then
