@@ -60,12 +60,13 @@ for each service under `/tmp/ha-cluster/`:
                         →  /tmp/ha-cluster/lease-sync.conf
 ```
 
-All three daemons are started as procd instances by ha-cluster. Do **not**
-use standalone init scripts (`/etc/init.d/keepalived`, `/etc/init.d/owsync`,
-`/etc/init.d/lease-sync`) while ha-cluster is enabled — they generate their
-own configs and would conflict.
+All three daemons are started as procd instances by ha-cluster. While it is
+enabled, ha-cluster stops and disables the standalone `keepalived`, `owsync`
+and `lease-sync` init scripts, and restores their previous state when it
+stops.
 
-Any `uci commit ha-cluster` automatically triggers a service reload.
+Configuration changes are applied on reload (`reload_config`, or LuCI's
+Save & Apply).
 
 ## Quick Start
 
@@ -94,12 +95,13 @@ uci set ha-cluster.main.nopreempt='1'
 uci set ha-cluster.lan=vip
 uci set ha-cluster.lan.enabled='1'
 uci set ha-cluster.lan.vrrp_instance='main'
-uci set ha-cluster.lan.interface='br-lan'
+uci set ha-cluster.lan.interface='lan'
 uci set ha-cluster.lan.address='192.168.1.254'
 uci set ha-cluster.lan.netmask='255.255.255.0'
 
 # Apply
 uci commit ha-cluster
+reload_config
 ```
 
 Repeat on each peer node with the appropriate priority and peer addresses.
@@ -114,8 +116,8 @@ uci set dhcp.lan.force='1'
 uci commit dhcp
 ```
 
-**Why?** Without `force=1`, dnsmasq detects the peer's DHCP server on the
-same network and disables its own DHCP service on that interface. This
+**Why?** Without `force=1`, dnsmasq's init script probes for another DHCP
+server on the interface, finds the peer, and leaves DHCP disabled there. This
 prevents the ubus `add_lease` method from working — lease-sync cannot
 inject leases into a node whose DHCP subsystem is not initialized. DNS
 resolution for local hostnames would fail on the BACKUP node.
@@ -174,9 +176,9 @@ same instance for atomic failover.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | bool | `1` | Enable this VIP |
+| `enabled` | bool | `0` | Enable this VIP |
 | `vrrp_instance` | string | | Name of `vrrp_instance` section |
-| `interface` | string | | Network interface for this VIP (e.g. `br-lan`) |
+| `interface` | string | | Logical interface (e.g. `lan`), resolved to its device |
 | `address` | string | | Virtual IPv4 address |
 | `netmask` | string | `255.255.255.0` | IPv4 netmask |
 | `address6` | string | | Virtual IPv6 address (optional, uses VRID+128) |
@@ -184,11 +186,11 @@ same instance for atomic failover.
 
 ### Peers (`config peer`)
 
-| Option | Type | Description |
-|--------|------|-------------|
-| `name` | string | Peer identifier |
-| `address` | string | Peer IP address |
-| `source_address` | string | Local IP to use when contacting this peer (also used as `unicast_src_ip` for auto-derivation) |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `name` | string | | Peer identifier |
+| `address` | string | | Peer IP address |
+| `source_address` | string | | Local IP to use when contacting this peer (also used as `unicast_src_ip` for auto-derivation) |
 | `sync_enabled` | bool | `1` | Enable owsync/lease-sync for this peer. Set to `0` for non-OpenWrt peers (VRRP-only) |
 
 ### Services (`config service '<name>'`)
@@ -205,7 +207,7 @@ Each service section defines a sync group for owsync.
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `file` | list | UCI config names to never sync |
+| `file` | list | Patterns (relative to `sync_dir`) to never sync; they take precedence over sync groups |
 
 Default exclusions: `network`, `system`, `owsync`, `ha-cluster`, `wireless`.
 
@@ -246,15 +248,15 @@ Custom scripts can be placed in `/etc/hotplug.d/keepalived/` with a
 numeric prefix above 50 (e.g. `60-vpn-failover`).
 
 Available environment variables:
-- `ACTION` — `MASTER`, `BACKUP`, `FAULT`, or `STOP`
-- `TYPE` — `INSTANCE`, `GROUP`, etc.
-- `NAME` — instance name (e.g. `main`)
+- `ACTION` — `MASTER`, `BACKUP` or `FAULT`
+- `TYPE` — `INSTANCE`
+- `NAME` — instance name (e.g. `main`, or `main_v6` for its IPv6 instance)
 
 ## Files
 
 ```
 /etc/config/ha-cluster                  UCI configuration
-/etc/init.d/ha-cluster                  procd init script (START=19, STOP=91)
+/etc/init.d/ha-cluster                  procd init script (START=25, STOP=91)
 /usr/lib/ha-cluster/ha-cluster.sh       Core library
 /tmp/ha-cluster/                        Generated configs (runtime)
 ```
