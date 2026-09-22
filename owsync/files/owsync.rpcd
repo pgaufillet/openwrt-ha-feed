@@ -102,6 +102,9 @@ case "$1" in
 				if [ -z "$sync_dir" ] && [ -f /etc/config/owsync ]; then
 					sync_dir=$(uci -q get owsync.general.dir)
 				fi
+				if [ -z "$db_path" ] && [ -f /etc/config/owsync ]; then
+					db_path=$(uci -q get owsync.general.db)
+				fi
 
 				# Default database path
 				db_path="${db_path:-/etc/owsync/owsync.db}"
