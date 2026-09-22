@@ -54,20 +54,24 @@ _node_perm() {
 # the other generated daemon configs.
 test_keepalived_conf_mode_0600() {
     subheader "keepalived.conf is created with mode 0600"
+    local rc=0
 
     assert_eq "-rw-------" "$(_node_perm "$NODE1" "$KEEPALIVED_CONF")" \
-        "keepalived.conf mode is 0600 on $NODE1"
+        "keepalived.conf mode is 0600 on $NODE1" || rc=1
 
     # Baseline: the other two configs were already 0600.
     assert_eq "-rw-------" "$(_node_perm "$NODE1" "$OWSYNC_CONF")" \
-        "owsync.conf mode is 0600 on $NODE1"
+        "owsync.conf mode is 0600 on $NODE1" || rc=1
     assert_eq "-rw-------" "$(_node_perm "$NODE1" "$LEASE_SYNC_CONF")" \
-        "lease-sync.conf mode is 0600 on $NODE1"
+        "lease-sync.conf mode is 0600 on $NODE1" || rc=1
+
+    return $rc
 }
 
 # A reload that does not change the dnsmasq overlay must not restart dnsmasq.
 test_reload_keeps_dnsmasq_running() {
     subheader "Reload with unchanged overlay does not restart dnsmasq"
+    local rc=0
 
     # busybox pgrep -x matches the full command line, not the comm, so use a
     # plain match and take the parent (lowest) pid; dnsmasq forks a helper.
@@ -87,20 +91,23 @@ test_reload_keeps_dnsmasq_running() {
     info "dnsmasq pid after reload: $pid_after"
 
     assert_eq "$pid_before" "$pid_after" \
-        "dnsmasq keeps the same pid across an unchanged reload"
+        "dnsmasq keeps the same pid across an unchanged reload" || rc=1
 
     # The overlay itself must still be in place after the reload.
     local overlay
     overlay=$(exec_node "$NODE1" sh -c \
         'cat "$(find /tmp -name ha-cluster.conf 2>/dev/null | head -n1)" 2>/dev/null')
     assert_contains "$overlay" "script-on-renewal" \
-        "dnsmasq HA overlay is still present after reload"
+        "dnsmasq HA overlay is still present after reload" || rc=1
+
+    return $rc
 }
 
 # The pre-takeover state snapshot must not be overwritten by a reload,
 # otherwise release could no longer restore the standalone services.
 test_service_state_survives_reload() {
     subheader "Saved service state survives a reload"
+    local rc=0
 
     # Start from a clean, released baseline.
     exec_node "$NODE1" /etc/init.d/ha-cluster stop >/dev/null 2>&1
@@ -116,7 +123,7 @@ test_service_state_survives_reload() {
     local state_before
     state_before=$(get_file_content "$NODE1" "$STATE_FILE")
     assert_contains "$state_before" "keepalived=1" \
-        "take_over records keepalived as previously enabled"
+        "take_over records keepalived as previously enabled" || rc=1
 
     # Reload must not re-capture (which would record keepalived=0 now that
     # take_over already disabled the standalone service).
@@ -126,9 +133,11 @@ test_service_state_survives_reload() {
     local state_after
     state_after=$(get_file_content "$NODE1" "$STATE_FILE")
     assert_contains "$state_after" "keepalived=1" \
-        "reload preserves the saved keepalived=1 state"
+        "reload preserves the saved keepalived=1 state" || rc=1
     assert_eq "$state_before" "$state_after" \
-        "state file is unchanged by reload"
+        "state file is unchanged by reload" || rc=1
+
+    return $rc
 }
 
 # Options placed in the named "advanced" section must reach the generated
