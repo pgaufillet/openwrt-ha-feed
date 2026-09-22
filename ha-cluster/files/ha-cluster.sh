@@ -925,8 +925,6 @@ ha_manage_services() {
 # dnsmasq conf-dir overlay for HA operation
 # ha-cluster drops a config file into dnsmasq's conf-dir to enable HA-required
 # options at runtime, without modifying /etc/config/dhcp.
-# dnsmasq-ha's init script detects this file and skips the dhcp_check probe,
-# allowing both HA nodes to serve DHCP simultaneously.
 HA_DNSMASQ_OVERLAY_NAME="ha-cluster.conf"
 
 # Resolve dnsmasq's conf-dir path from UCI
