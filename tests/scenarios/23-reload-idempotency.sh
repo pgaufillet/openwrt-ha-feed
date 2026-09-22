@@ -8,6 +8,7 @@
 #     (it can hold the VRRP auth_pass in cleartext).
 #   - A reload with an unchanged dnsmasq overlay does NOT restart dnsmasq,
 #     so DNS/DHCP is not dropped needlessly.
+#   - The overlay's temp file is never visible to dnsmasq's conf-dir scan.
 #   - The saved standalone-service state survives a reload, so release (on
 #     stop) can still restore the services to their pre-takeover state.
 #   - Options set in the named "advanced" section are honoured in the
@@ -99,6 +100,47 @@ test_reload_keeps_dnsmasq_running() {
         'cat "$(find /tmp -name ha-cluster.conf 2>/dev/null | head -n1)" 2>/dev/null')
     assert_contains "$overlay" "script-on-renewal" \
         "dnsmasq HA overlay is still present after reload" || rc=1
+
+    return $rc
+}
+
+# dnsmasq loads every non-dot file in its conf-dir, so the overlay's
+# temporary file must never be visible to it, even transiently.
+test_overlay_tmp_hidden_from_dnsmasq() {
+    subheader "Overlay temp file is invisible to dnsmasq's conf-dir scan"
+    local rc=0
+
+    # Snapshot the conf-dir from inside the write window: cmp runs between
+    # writing the temp file and the final mv/rm.
+    local visible_during visible_after
+    visible_during=$(exec_node "$NODE1" sh -c '
+        . /usr/lib/ha-cluster/ha-cluster.sh
+        cmp() { ls -A "$confdir" > /tmp/t23-confdir.snap; command cmp "$@"; }
+        ha_configure_dnsmasq
+        grep -v "^\." /tmp/t23-confdir.snap; rm -f /tmp/t23-confdir.snap' 2>/dev/null)
+    visible_after=$(exec_node "$NODE1" sh -c \
+        '. /usr/lib/ha-cluster/ha-cluster.sh; ls "$(ha_get_dnsmasq_confdir)"' 2>/dev/null)
+
+    assert_contains "$visible_during" "ha-cluster.conf" \
+        "conf-dir snapshot was taken inside the write window" || rc=1
+    assert_eq "$visible_after" "$visible_during" \
+        "no extra file visible to dnsmasq while the overlay is written" || rc=1
+
+    # The fix relies on dnsmasq skipping dotfiles; check the shipped binary.
+    local rc_dot rc_plain
+    exec_node "$NODE1" sh -c 'rm -rf /tmp/t23-cd; mkdir /tmp/t23-cd;
+        echo "not-a-dnsmasq-option" > /tmp/t23-cd/.probe.new' >/dev/null 2>&1
+    exec_node "$NODE1" dnsmasq --test --conf-file=/dev/null \
+        --conf-dir=/tmp/t23-cd >/dev/null 2>&1
+    rc_dot=$?
+    exec_node "$NODE1" mv /tmp/t23-cd/.probe.new /tmp/t23-cd/probe.new >/dev/null 2>&1
+    exec_node "$NODE1" dnsmasq --test --conf-file=/dev/null \
+        --conf-dir=/tmp/t23-cd >/dev/null 2>&1
+    rc_plain=$?
+    exec_node "$NODE1" rm -rf /tmp/t23-cd >/dev/null 2>&1
+
+    assert_eq "0" "$rc_dot" "dnsmasq ignores a dot-prefixed file in conf-dir" || rc=1
+    assert_ne "0" "$rc_plain" "dnsmasq parses a non-dot file in conf-dir" || rc=1
 
     return $rc
 }
@@ -195,6 +237,7 @@ main() {
 
     # Non-destructive check first.
     test_keepalived_conf_mode_0600 || result=1
+    test_overlay_tmp_hidden_from_dnsmasq || result=1
 
     # Reload/restart cases (each restores cluster health).
     test_reload_keeps_dnsmasq_running || result=1
