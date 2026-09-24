@@ -121,7 +121,7 @@ return view.extend({
 	render: function() {
 		var m, s, o;
 		var self = this;
-		var baseServices = ['dhcp', 'firewall', 'wireless'];
+		var baseServices = ['dhcp', 'firewall'];
 
 		m = new form.Map('ha-cluster', _('High Availability - Advanced Config Sync'),
 			_('Custom sync groups for services beyond General settings (e.g., VPN, mwan3).'));
@@ -196,7 +196,7 @@ return view.extend({
 
 		// === Exclusions ===
 		s = m.section(form.TypedSection, 'exclude', _('Exclusions'),
-			_('Files excluded from sync. Default: network, system, ha-cluster, owsync.'));
+			_('Files never synced; exclusions take precedence over sync groups. Default: network, system, owsync, ha-cluster, wireless.'));
 		s.anonymous = true;
 		s.addremove = false;
 

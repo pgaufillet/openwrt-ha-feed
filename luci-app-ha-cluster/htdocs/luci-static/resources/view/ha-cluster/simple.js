@@ -601,15 +601,6 @@ return view.extend({
 		o.write = function(section_id, value) { uci.set('ha-cluster', 'firewall', 'enabled', value); };
 		o.remove = function() { uci.set('ha-cluster', 'firewall', 'enabled', '0'); };
 
-		// Sync Wireless - maps to service.wireless.enabled
-		o = s.option(form.Flag, '_wireless_config', _('Sync Wireless Configuration'),
-			_('Synchronize /etc/config/wireless (SSID, encryption). WARNING: Only enable if routers have identical WiFi hardware!'));
-		o.default = '0';
-		o.rmempty = false;
-		o.cfgvalue = function() { return uci.get('ha-cluster', 'wireless', 'enabled'); };
-		o.write = function(section_id, value) { uci.set('ha-cluster', 'wireless', 'enabled', value); };
-		o.remove = function() { uci.set('ha-cluster', 'wireless', 'enabled', '0'); };
-
 		return m.render();
 	}
 });
