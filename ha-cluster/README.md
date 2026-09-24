@@ -199,7 +199,7 @@ Each service section defines a sync group for owsync.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | bool | `0` | Enable sync for this group |
+| `enabled` | bool | `1` | Enable sync for this group |
 | `config_files` | list | | UCI config names or paths to sync |
 | `sync_leases` | bool | `0` | Enable lease-sync daemon (dhcp service only) |
 
