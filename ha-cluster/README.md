@@ -211,6 +211,9 @@ Each service section defines a sync group for owsync.
 
 Default exclusions: `network`, `system`, `owsync`, `ha-cluster`, `wireless`.
 
+`wireless` mixes per-node radio settings (`path`, `channel`) with shared
+SSID/key data. To sync it anyway, remove its exclusion and add a sync group.
+
 ### Health check scripts (`config script '<name>'`)
 
 | Option | Type | Default | Description |
