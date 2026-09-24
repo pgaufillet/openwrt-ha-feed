@@ -8,6 +8,7 @@
 #   - VRRP instance names match UCI section names (no VI_ prefix)
 #   - Unicast auto-derivation from peer config when vrrp_transport=unicast
 #   - sync_enabled=0 peers excluded from owsync/lease-sync but included in unicast
+#   - Sync group without an enabled option is included in owsync.conf
 #   - Instance lifecycle: new instance with VIP appears, empty instance skipped
 #   - Multiple instances on same interface both generated
 #   - Per-instance unicast override takes precedence over auto-derivation
@@ -293,6 +294,62 @@ test_sync_enabled_unicast_included() {
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
     wait_for_service "$node" "keepalived" 30
+}
+
+# ============================================
+# Test Cases - Sync Groups
+# ============================================
+
+test_sync_group_enabled_default() {
+    subheader "Sync Group Without enabled Option Is Included"
+
+    local node="$NODE1"
+    local rc=0
+    local owsync_conf
+
+    exec_node "$node" uci set ha-cluster.t21group=service
+    exec_node "$node" uci add_list ha-cluster.t21group.config_files=t21file
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    owsync_conf=$(get_file_content "$node" "$OWSYNC_CONF")
+    if echo "$owsync_conf" | grep -qx "include=t21file"; then
+        pass "Group without enabled option included in owsync.conf"
+    else
+        fail "Group without enabled option missing from owsync.conf"
+        rc=1
+    fi
+
+    uci_set "$node" "ha-cluster.t21group.enabled" "0"
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    owsync_conf=$(get_file_content "$node" "$OWSYNC_CONF")
+    if [ -z "$owsync_conf" ]; then
+        fail "owsync.conf not found on $node"
+        rc=1
+    elif echo "$owsync_conf" | grep -qx "include=t21file"; then
+        fail "Group with enabled=0 still in owsync.conf"
+        rc=1
+    else
+        pass "Group with enabled=0 excluded from owsync.conf"
+    fi
+
+    # Restore
+    exec_node "$node" uci delete ha-cluster.t21group 2>/dev/null || true
+    uci_commit "$node" "ha-cluster"
+    stop_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service_stopped "$node" "keepalived" 10
+    start_ha_cluster "$node" 2>/dev/null || true
+    wait_for_service "$node" "keepalived" 30
+
+    return $rc
 }
 
 # ============================================
@@ -825,6 +882,9 @@ main() {
     # sync_enabled filtering tests
     test_sync_enabled_filtering || result=1
     test_sync_enabled_unicast_included || result=1
+
+    # Sync group tests
+    test_sync_group_enabled_default || result=1
 
     # Instance lifecycle tests
     test_new_instance_appears_in_config || result=1
