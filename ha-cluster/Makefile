@@ -47,6 +47,8 @@ define Package/ha-cluster/install
 	$(INSTALL_DIR) $(1)/usr/lib/ha-cluster
 	$(INSTALL_BIN) ./files/ha-cluster.sh $(1)/usr/lib/ha-cluster/
 
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./files/ha-cluster.uci-defaults $(1)/etc/uci-defaults/60_ha-cluster-sync-model
 endef
 
 define Package/ha-cluster/prerm

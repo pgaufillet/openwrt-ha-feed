@@ -137,10 +137,10 @@ _ha_collect_peer_address() {
 _ha_sync_peer_count=0
 _ha_count_sync_peer() {
 	local section="$1"
-	local address sync_enabled
+	local address vrrp_only
 
-	config_get_bool sync_enabled "$section" sync_enabled 1
-	[ "$sync_enabled" -eq 0 ] && return 0
+	config_get_bool vrrp_only "$section" vrrp_only 0
+	[ "$vrrp_only" -eq 1 ] && return 0
 
 	config_get address "$section" address ""
 	[ -n "$address" ] && _ha_sync_peer_count=$((_ha_sync_peer_count + 1))
@@ -172,7 +172,7 @@ _ha_count_group_includes() {
 # An enabled sync group lists files and there is a peer to sync with.
 ha_owsync_wanted() {
 	_ha_include_count=0
-	config_foreach _ha_count_group_includes service
+	config_foreach _ha_count_group_includes sync_group
 	[ "$_ha_include_count" -gt 0 ] && ha_has_sync_peer
 }
 
@@ -181,7 +181,7 @@ ha_owsync_wanted() {
 ha_lease_sync_wanted() {
 	local lease_sync
 
-	config_get_bool lease_sync dhcp sync_leases 0
+	config_get_bool lease_sync config lease_sync 0
 	[ "$lease_sync" -eq 1 ] && ha_has_sync_peer
 }
 
@@ -613,7 +613,7 @@ EOF
 	echo "" >> "$OWSYNC_CONF"
 
 	echo "# Include patterns (sync these files)" >> "$OWSYNC_CONF"
-	config_foreach ha_add_owsync_includes_conf service
+	config_foreach ha_add_owsync_includes_conf sync_group
 
 	echo "" >> "$OWSYNC_CONF"
 	echo "# Exclude patterns (never sync these)" >> "$OWSYNC_CONF"
@@ -623,13 +623,13 @@ EOF
 	return 0
 }
 
-# sync_enabled=0 marks a VRRP-only peer (not running owsync/lease-sync)
+# vrrp_only=1 marks a peer not running ha-cluster
 ha_add_owsync_peer_conf() {
 	local section="$1"
-	local address source_address sync_enabled
+	local address source_address vrrp_only
 
-	config_get_bool sync_enabled "$section" sync_enabled 1
-	[ "$sync_enabled" -eq 0 ] && return 0
+	config_get_bool vrrp_only "$section" vrrp_only 0
+	[ "$vrrp_only" -eq 1 ] && return 0
 
 	config_get address "$section" address
 	config_get source_address "$section" source_address ""
@@ -748,10 +748,10 @@ EOF
 
 ha_add_lease_sync_peer_flat() {
 	local section="$1"
-	local address source_address sync_enabled
+	local address source_address vrrp_only
 
-	config_get_bool sync_enabled "$section" sync_enabled 1
-	[ "$sync_enabled" -eq 0 ] && return 0
+	config_get_bool vrrp_only "$section" vrrp_only 0
+	[ "$vrrp_only" -eq 1 ] && return 0
 
 	config_get address "$section" address
 	config_get source_address "$section" source_address ""

@@ -56,6 +56,51 @@ config dhcp 'lan'
 	option leasetime '12h'
 	option force '1'
 
+== uci after migration
+package ha-cluster
+
+config global 'config'
+	option enabled '1'
+	option vrrp_transport 'multicast'
+	option sync_method 'owsync'
+	option encryption_key '7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e'
+	option lease_sync '1'
+
+config vrrp_instance 'main'
+	option vrid '51'
+	option interface 'lan'
+	option priority '200'
+	option nopreempt '0'
+	option advert_int '1'
+
+config vip 'lan'
+	option enabled '1'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.50.254'
+	option netmask '255.255.255.0'
+
+config peer 'peer1'
+	option name 'node2'
+	option address '172.30.0.11'
+
+config sync_group 'dhcp'
+	option enabled '1'
+	list config_files 'dhcp'
+
+config sync_group 'firewall'
+	option enabled '0'
+	list config_files 'firewall'
+
+config advanced 'advanced'
+	option log_level '3'
+
+config exclude
+	list file 'network'
+	list file 'system'
+	list file 'owsync'
+	list file 'ha-cluster'
+
 == start_service
 instance [keepalived]
 	set [command] [/usr/sbin/keepalived]

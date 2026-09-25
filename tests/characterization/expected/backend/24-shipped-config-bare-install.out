@@ -5,7 +5,7 @@ config global 'config'
 	option enabled '1'
 	option node_priority '100'
 	option vrrp_transport 'multicast'
-	option sync_method 'owsync'
+	option lease_sync '1'
 
 config vrrp_instance 'main'
 	option vrid '64'
@@ -21,12 +21,11 @@ config vip
 	option address '192.168.1.254'
 	option netmask '255.255.255.0'
 
-config service 'dhcp'
+config sync_group 'dhcp'
 	option enabled '1'
-	option sync_leases '1'
 	list config_files 'dhcp'
 
-config service 'firewall'
+config sync_group 'firewall'
 	option enabled '0'
 	list config_files 'firewall'
 
@@ -61,6 +60,56 @@ config dhcp 'lan'
 	option limit '150'
 	option leasetime '12h'
 	option force '1'
+
+== uci after migration
+package ha-cluster
+
+config global 'config'
+	option enabled '1'
+	option node_priority '100'
+	option vrrp_transport 'multicast'
+	option lease_sync '1'
+
+config vrrp_instance 'main'
+	option vrid '64'
+	option interface 'lan'
+	option priority '100'
+	option nopreempt '1'
+	option advert_int '1'
+
+config vip
+	option enabled '1'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.1.254'
+	option netmask '255.255.255.0'
+
+config sync_group 'dhcp'
+	option enabled '1'
+	list config_files 'dhcp'
+
+config sync_group 'firewall'
+	option enabled '0'
+	list config_files 'firewall'
+
+config advanced 'advanced'
+	option log_level '2'
+	option owsync_log_level '2'
+	option sync_interval '30'
+	option lease_sync_port '5378'
+	option lease_sync_interval '30'
+	option lease_sync_peer_timeout '120'
+	option lease_sync_persist_interval '60'
+	option lease_sync_log_level '2'
+	option max_auto_priority '0'
+	option enable_notifications '0'
+
+config exclude
+	list file 'network'
+	list file 'system'
+	list file 'owsync'
+	list file 'ha-cluster'
+	list file 'wireless'
 
 == start_service
 instance [keepalived]

@@ -13,7 +13,7 @@
             "last_seen": "Just now"
         }
     ],
-    "state": "FAULTY",
+    "state": "HEALTHY",
     "services": {
         "keepalived": {
             "required": true,
@@ -28,7 +28,7 @@
             "uptime": 0
         },
         "lease-sync": {
-            "required": true,
+            "required": false,
             "running": false,
             "pid": 0,
             "uptime": 0

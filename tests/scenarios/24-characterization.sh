@@ -53,6 +53,7 @@ run_case() {
         -v "$FEED_DIR/ha-cluster/files/ha-cluster.sh:/usr/lib/ha-cluster/ha-cluster.sh:ro" \
         -v "$FEED_DIR/ha-cluster/files/ha-cluster.init:/etc/init.d/ha-cluster:ro" \
         -v "$FEED_DIR/ha-cluster/files/ha-cluster.config:/shipped/ha-cluster:ro" \
+        -v "$FEED_DIR/ha-cluster/files/ha-cluster.uci-defaults:/char-migrate:ro" \
         -v "$FEED_DIR/luci-app-ha-cluster/root/usr/libexec/rpcd/ha-cluster:/usr/libexec/rpcd/ha-cluster:ro" \
         -v "$CHAR_DIR:/char:ro" \
         "$NODE_IMAGE" /char/harness.sh "$mode" "/char/$mode/cases/$case_name"

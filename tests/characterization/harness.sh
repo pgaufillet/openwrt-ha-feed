@@ -7,6 +7,10 @@
 # create files, set the FAKE_* variables read by the stubs, and set
 # STEP2=reload|stop (with an optional step2 function applying changes
 # first) to observe a second step after the first start.
+#
+# Cases describe the configuration before the package upgrade: the
+# uci-defaults migration runs on it before the first start. step2
+# changes are made after the upgrade and use the current option names.
 
 exec 2>&1
 
@@ -102,6 +106,10 @@ case "$mode" in
 		uci export ha-cluster
 		uci export dhcp
 
+		sh /char-migrate
+		echo "== uci after migration"
+		uci export ha-cluster
+
 		load_init
 
 		echo "== start_service"
@@ -126,6 +134,7 @@ case "$mode" in
 		fi
 		;;
 	rpcd)
+		sh /char-migrate
 		# rpcd may read what the backend generated
 		( load_init; start_service ) > /dev/null 2>&1
 		# Fixed mtimes for the "last sync" timestamps

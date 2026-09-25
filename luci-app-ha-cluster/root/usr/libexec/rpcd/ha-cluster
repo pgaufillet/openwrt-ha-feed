@@ -147,16 +147,8 @@ case "$1" in
 						fi
 					fi
 
-					# lease-sync is required if any service has sync_leases='1'
-					lease_sync_required=0
-					for svc_section in $(uci show ha-cluster 2>/dev/null | grep "=service$" | cut -d. -f2 | cut -d= -f1); do
-						sync_leases=$(uci -q get "ha-cluster.$svc_section.sync_leases")
-						if [ "$sync_leases" = "1" ]; then
-							lease_sync_required=1
-							break
-						fi
-					done
-					if [ "$lease_sync_required" -eq 1 ]; then
+					# lease-sync is required if lease_sync='1'
+					if [ "$(uci -q get ha-cluster.config.lease_sync)" = "1" ]; then
 						if ! pgrep "lease-sync" >/dev/null 2>&1; then
 							services_ok=0
 						fi
@@ -247,12 +239,7 @@ case "$1" in
 				# Determine which services are required based on config
 				sync_method=$(uci -q get ha-cluster.config.sync_method)
 				lease_sync_required=0
-				for svc_check in $(uci show ha-cluster 2>/dev/null | grep "=service$" | cut -d. -f2 | cut -d= -f1); do
-					if [ "$(uci -q get ha-cluster.$svc_check.sync_leases)" = "1" ]; then
-						lease_sync_required=1
-						break
-					fi
-				done
+				[ "$(uci -q get ha-cluster.config.lease_sync)" = "1" ] && lease_sync_required=1
 
 				json_add_object services
 
