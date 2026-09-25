@@ -1,0 +1,5 @@
+== /etc/config/ha-cluster
+== migration rc=0
+== /etc/config/ha-cluster
+== second run rc=0
+(unchanged)

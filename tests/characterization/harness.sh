@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs one characterization case in a throwaway node container and prints
 # its observable result.
-# Usage: harness.sh backend|rpcd <case file>
+# Usage: harness.sh backend|rpcd|migration <case file>
 #
 # A case file is sourced with errexit set. It may change UCI, remove or
 # create files, set the FAKE_* variables read by the stubs, and set
@@ -11,6 +11,9 @@
 # Cases describe the configuration before the package upgrade: the
 # uci-defaults migration runs on it before the first start. step2
 # changes are made after the upgrade and use the current option names.
+#
+# Migration cases write /etc/config/ha-cluster verbatim; only the
+# uci-defaults migration runs, twice.
 
 exec 2>&1
 
@@ -145,6 +148,21 @@ case "$mode" in
 		out="$(/usr/libexec/rpcd/ha-cluster call status)"
 		echo "== status rc=$?"
 		echo "$out"
+		;;
+	migration)
+		config=/etc/config/ha-cluster
+		show_file "$config"
+		sh /char-migrate
+		echo "== migration rc=$?"
+		show_file "$config" | tee /tmp/char-first
+		sh /char-migrate
+		echo "== second run rc=$?"
+		show_file "$config" > /tmp/char-second
+		if cmp -s /tmp/char-first /tmp/char-second; then
+			echo "(unchanged)"
+		else
+			cat /tmp/char-second
+		fi
 		;;
 esac
 

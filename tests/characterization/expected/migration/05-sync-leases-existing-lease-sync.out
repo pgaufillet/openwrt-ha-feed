@@ -1,0 +1,20 @@
+== /etc/config/ha-cluster
+config config 'config'
+	option enabled '1'
+	option lease_sync '0'
+
+config service 'dhcp'
+	option sync_leases 'true'
+	list config_files 'dhcp'
+== migration rc=0
+== /etc/config/ha-cluster
+
+config config 'config'
+	option enabled '1'
+	option lease_sync '0'
+
+config sync_group 'dhcp'
+	list config_files 'dhcp'
+
+== second run rc=0
+(unchanged)

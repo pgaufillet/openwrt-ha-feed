@@ -1,5 +1,5 @@
 #!/bin/sh
-# 24-characterization.sh - Test T24: Backend and rpcd Characterization
+# 24-characterization.sh - Test T24: Backend, rpcd and Migration Characterization
 #
 # Freezes the observable behaviour of the ha-cluster backend and of the
 # rpcd status method over a matrix of configurations, so that any change
@@ -10,6 +10,8 @@
 #     standalone-service state
 #   - rpcd: "status" JSON for a given config, set of running daemons,
 #     reachable peers and keepalived dump
+#   - migration: /etc/config/ha-cluster before and after the uci-defaults
+#     migration, and after a second run
 #
 # Each case runs in a throwaway ha-cluster-node container (no network),
 # against the working-tree scripts, with logger/pgrep/ubus/ping stubbed.
@@ -43,7 +45,7 @@ NODE_IMAGE="${NODE_IMAGE:-ha-cluster-node:latest}"
 # Helpers
 # ============================================
 
-# Usage: run_case backend|rpcd <case file name>
+# Usage: run_case backend|rpcd|migration <case file name>
 run_case() {
     local mode="$1"
     local case_name="$2"
@@ -90,7 +92,7 @@ test_prerequisites() {
     pass "Node image and python3 available"
 }
 
-# Usage: test_matrix backend|rpcd
+# Usage: test_matrix backend|rpcd|migration
 test_matrix() {
     local mode="$1"
     local rc=0
@@ -152,8 +154,8 @@ test_matrix() {
 # ============================================
 
 main() {
-    header "T24: Backend and rpcd Characterization"
-    info "Compares backend and rpcd behaviour with the expected outputs"
+    header "T24: Backend, rpcd and Migration Characterization"
+    info "Compares backend, rpcd and migration behaviour with the expected outputs"
 
     local result=0
 
@@ -161,6 +163,7 @@ main() {
 
     test_matrix backend || result=1
     test_matrix rpcd || result=1
+    test_matrix migration || result=1
 
     return $result
 }

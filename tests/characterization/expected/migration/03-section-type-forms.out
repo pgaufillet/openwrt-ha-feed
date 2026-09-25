@@ -1,0 +1,59 @@
+== /etc/config/ha-cluster
+# leading comment
+config config 'config'
+	option enabled '1'
+
+config service 'dhcp'
+	list config_files 'dhcp'
+
+config 'service' 'firewall'
+	list config_files 'firewall'
+
+config "service" "wifi"
+	list config_files 'wireless'
+
+  config	service
+	list config_files 'system'
+
+config service
+	list config_files 'uhttpd'
+
+config peer 'service'
+	option name 'service'
+	option address '172.30.0.11'
+
+config services 'other'
+	option note 'config service'
+
+#config service 'commented'
+== migration rc=0
+== /etc/config/ha-cluster
+# leading comment
+config config 'config'
+	option enabled '1'
+
+config sync_group 'dhcp'
+	list config_files 'dhcp'
+
+config 'sync_group' 'firewall'
+	list config_files 'firewall'
+
+config "sync_group" "wifi"
+	list config_files 'wireless'
+
+  config	sync_group
+	list config_files 'system'
+
+config sync_group
+	list config_files 'uhttpd'
+
+config peer 'service'
+	option name 'service'
+	option address '172.30.0.11'
+
+config services 'other'
+	option note 'config service'
+
+#config service 'commented'
+== second run rc=0
+(unchanged)

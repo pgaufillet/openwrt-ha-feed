@@ -1,0 +1,19 @@
+== /etc/config/ha-cluster
+config config 'config'
+	option enabled '1'
+	option sync_method 'owsync'
+
+config service 'dhcp'
+	option enabled '1'
+	list config_files 'dhcp'
+== migration rc=0
+== /etc/config/ha-cluster
+config config 'config'
+	option enabled '1'
+	option sync_method 'owsync'
+
+config sync_group 'dhcp'
+	option enabled '1'
+	list config_files 'dhcp'
+== second run rc=0
+(unchanged)

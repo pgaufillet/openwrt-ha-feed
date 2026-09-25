@@ -1,0 +1,45 @@
+== /etc/config/ha-cluster
+config config 'config'
+	option enabled '1'
+	option sync_method 'none'
+
+config service 'dhcp'
+	option enabled '1'
+	option sync_leases '1'
+	list config_files 'dhcp'
+
+config service 'firewall'
+	option enabled '0'
+	list config_files 'firewall'
+
+config service 'misc'
+	list config_files 'uhttpd'
+
+config service
+	option enabled 'yes'
+	list config_files 'system'
+== migration rc=0
+== /etc/config/ha-cluster
+
+config config 'config'
+	option enabled '1'
+	option lease_sync '1'
+
+config sync_group 'dhcp'
+	option enabled '0'
+	list config_files 'dhcp'
+
+config sync_group 'firewall'
+	option enabled '0'
+	list config_files 'firewall'
+
+config sync_group 'misc'
+	list config_files 'uhttpd'
+	option enabled '0'
+
+config sync_group
+	option enabled '0'
+	list config_files 'system'
+
+== second run rc=0
+(unchanged)

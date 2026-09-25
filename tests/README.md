@@ -399,11 +399,11 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 
 | ID | Scenario | Validates |
 |----|----------|-----------|
-| T24 | Characterization | Backend and rpcd `status` output unchanged over a matrix of configurations |
+| T24 | Characterization | Backend, rpcd `status` and UCI migration output unchanged over a matrix of configurations |
 
-T24 runs each case of `characterization/{backend,rpcd}/cases/` in a
+T24 runs each case of `characterization/{backend,rpcd,migration}/cases/` in a
 throwaway `ha-cluster-node` container (no network), against the
-working-tree `ha-cluster.sh`, init script and rpcd handler, with
+working-tree `ha-cluster.sh`, init script, migration and rpcd handler, with
 `logger`, `pgrep`, `ubus` and `ping` stubbed. It compares the result
 (effective UCI, procd instances, log lines, generated configs, dnsmasq
 overlay, saved service state and rc.d links, rpcd JSON) with
@@ -415,7 +415,13 @@ run T24 with SELinux permissive.
 A case file is sourced with `set -e` before the start: it changes UCI,
 creates or removes files, and sets the stub inputs (`FAKE_RUNNING`,
 `FAKE_ONLINE`, `FAKE_KEEPALIVED`). `STEP2=reload|stop`, with an optional
-`step2` function, observes a second step after the start.
+`step2` function, observes a second step after the start. Backend and
+rpcd cases describe the configuration before a package upgrade: the
+`uci-defaults` migration runs on it before the start.
+
+The `migration` cases write `/etc/config/ha-cluster` verbatim (old
+spellings, comments, anonymous sections) and record the file after the
+migration and after a second run, which must leave it unchanged.
 
 An intended behaviour change is recorded by regenerating the expected
 files and committing their diff with the change:
