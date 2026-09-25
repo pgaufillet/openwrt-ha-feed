@@ -367,7 +367,7 @@ configure_node_from_env() {
         uci set ha-cluster.config=config
         uci set ha-cluster.config.enabled='1'
         uci set ha-cluster.config.encryption_key='$TEST_KEY'
-        uci set ha-cluster.config.sync_method='owsync'
+        uci set ha-cluster.config.lease_sync='1'
 
         # VRRP instance config
         uci set ha-cluster.main=vrrp_instance
@@ -404,14 +404,13 @@ configure_node_from_env() {
             uci set ha-cluster.peer2.address='$peer_ip_2'
         fi
 
-        # Service config
-        uci set ha-cluster.dhcp=service
+        # Sync group config
+        uci set ha-cluster.dhcp=sync_group
         uci set ha-cluster.dhcp.enabled='1'
-        uci set ha-cluster.dhcp.sync_leases='1'
         uci add_list ha-cluster.dhcp.config_files='dhcp'
 
-        # Test service for config sync tests
-        uci set ha-cluster.test=service
+        # Test sync group for config sync tests
+        uci set ha-cluster.test=sync_group
         uci set ha-cluster.test.enabled='1'
         uci add_list ha-cluster.test.config_files='test_sync'
         uci add_list ha-cluster.test.config_files='test_sync2'

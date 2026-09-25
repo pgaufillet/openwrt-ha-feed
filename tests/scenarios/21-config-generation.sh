@@ -7,12 +7,12 @@
 # Tests:
 #   - VRRP instance names match UCI section names (no VI_ prefix)
 #   - Unicast auto-derivation from peer config when vrrp_transport=unicast
-#   - sync_enabled=0 peers excluded from owsync/lease-sync but included in unicast
+#   - vrrp_only=1 peers excluded from owsync/lease-sync but included in unicast
 #   - Sync group without an enabled option is included in owsync.conf
 #   - Instance lifecycle: new instance with VIP appears, empty instance skipped
 #   - Multiple instances on same interface both generated
 #   - Per-instance unicast override takes precedence over auto-derivation
-#   - owsync.conf is removed when sync_method != owsync
+#   - owsync.conf is removed when no sync group is enabled
 #   - lease-sync.conf is removed when lease sync is disabled
 #
 # Note: IPv6 instance naming (${section}_v6) is not tested here
@@ -39,8 +39,8 @@ OWSYNC_CONF="/tmp/ha-cluster/owsync.conf"
 LEASE_SYNC_CONF="/tmp/ha-cluster/lease-sync.conf"
 
 # Saved state for restoration
-ORIGINAL_SYNC_METHOD=""
-ORIGINAL_SYNC_LEASES=""
+DISABLED_SYNC_GROUPS=""
+ORIGINAL_LEASE_SYNC=""
 
 # ============================================
 # Test Cases - Instance Naming
@@ -205,16 +205,16 @@ test_multicast_no_unicast_block() {
 }
 
 # ============================================
-# Test Cases - sync_enabled Filtering
+# Test Cases - vrrp_only Filtering
 # ============================================
 
-test_sync_enabled_filtering() {
-    subheader "sync_enabled=0 Peer Excluded From Sync Configs"
+test_vrrp_only_filtering() {
+    subheader "vrrp_only=1 Peer Excluded From Sync Configs"
 
     local node="$NODE1"
 
-    # Disable sync for peer1
-    uci_set "$node" "ha-cluster.peer1.sync_enabled" "0"
+    # Make peer1 VRRP-only
+    uci_set "$node" "ha-cluster.peer1.vrrp_only" "1"
     uci_commit "$node" "ha-cluster"
 
     stop_ha_cluster "$node" 2>/dev/null || true
@@ -229,24 +229,24 @@ test_sync_enabled_filtering() {
     local owsync_conf
     owsync_conf=$(get_file_content "$node" "$OWSYNC_CONF")
     if [ -n "$owsync_conf" ] && echo "$owsync_conf" | grep -qF "peer=$peer_addr"; then
-        fail "sync_enabled=0 peer still in owsync.conf"
+        fail "vrrp_only=1 peer still in owsync.conf"
         return 1
     else
-        pass "sync_enabled=0 peer excluded from owsync.conf"
+        pass "vrrp_only=1 peer excluded from owsync.conf"
     fi
 
     # Check lease-sync.conf: peer should NOT be present
     local ls_conf
     ls_conf=$(get_file_content "$node" "$LEASE_SYNC_CONF")
     if [ -n "$ls_conf" ] && echo "$ls_conf" | grep -qF "peer=$peer_addr"; then
-        fail "sync_enabled=0 peer still in lease-sync.conf"
+        fail "vrrp_only=1 peer still in lease-sync.conf"
         return 1
     else
-        pass "sync_enabled=0 peer excluded from lease-sync.conf"
+        pass "vrrp_only=1 peer excluded from lease-sync.conf"
     fi
 
     # Restore
-    exec_node "$node" uci delete ha-cluster.peer1.sync_enabled 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.peer1.vrrp_only 2>/dev/null || true
     uci_commit "$node" "ha-cluster"
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
@@ -254,16 +254,16 @@ test_sync_enabled_filtering() {
     wait_for_service "$node" "keepalived" 30
 }
 
-test_sync_enabled_unicast_included() {
-    subheader "sync_enabled=0 Peer Still In Unicast Peers"
+test_vrrp_only_unicast_included() {
+    subheader "vrrp_only=1 Peer Still In Unicast Peers"
 
     local node="$NODE1"
     local peer_addr
     peer_addr=$(uci_get "$node" "ha-cluster.peer1.address")
 
-    # Set unicast + disable sync for peer1
+    # Set unicast + make peer1 VRRP-only
     uci_set "$node" "ha-cluster.config.vrrp_transport" "unicast"
-    uci_set "$node" "ha-cluster.peer1.sync_enabled" "0"
+    uci_set "$node" "ha-cluster.peer1.vrrp_only" "1"
     uci_set "$node" "ha-cluster.peer1.source_address" "10.99.0.1"
     uci_commit "$node" "ha-cluster"
 
@@ -277,9 +277,9 @@ test_sync_enabled_unicast_included() {
 
     # Peer should still appear in unicast_peer block
     if echo "$conf" | grep -q "$peer_addr"; then
-        pass "sync_enabled=0 peer still in unicast_peer (VRRP participation)"
+        pass "vrrp_only=1 peer still in unicast_peer (VRRP participation)"
     else
-        fail "sync_enabled=0 peer missing from unicast_peer"
+        fail "vrrp_only=1 peer missing from unicast_peer"
         info "Expected: $peer_addr in unicast_peer block"
         info "Config: $(echo "$conf" | grep -A5 'unicast_peer')"
         return 1
@@ -287,7 +287,7 @@ test_sync_enabled_unicast_included() {
 
     # Restore
     uci_set "$node" "ha-cluster.config.vrrp_transport" "multicast"
-    exec_node "$node" uci delete ha-cluster.peer1.sync_enabled 2>/dev/null || true
+    exec_node "$node" uci delete ha-cluster.peer1.vrrp_only 2>/dev/null || true
     exec_node "$node" uci delete ha-cluster.peer1.source_address 2>/dev/null || true
     uci_commit "$node" "ha-cluster"
     stop_ha_cluster "$node" 2>/dev/null || true
@@ -307,7 +307,7 @@ test_sync_group_enabled_default() {
     local rc=0
     local owsync_conf
 
-    exec_node "$node" uci set ha-cluster.t21group=service
+    exec_node "$node" uci set ha-cluster.t21group=sync_group
     exec_node "$node" uci add_list ha-cluster.t21group.config_files=t21file
     uci_commit "$node" "ha-cluster"
     stop_ha_cluster "$node" 2>/dev/null || true
@@ -682,47 +682,39 @@ test_missing_force_rejected() {
 # Test Cases - Stale Config Cleanup
 # ============================================
 
+# Re-enable the sync groups disabled by the owsync.conf test
+restore_sync_groups() {
+    local node group
+
+    [ -n "$DISABLED_SYNC_GROUPS" ] || return 0
+    for node in "$NODE1" "$NODE2"; do
+        for group in $DISABLED_SYNC_GROUPS; do
+            uci_set "$node" "ha-cluster.$group.enabled" "1"
+        done
+        uci_commit "$node" "ha-cluster"
+    done
+    DISABLED_SYNC_GROUPS=""
+}
+
 test_owsync_conf_removed_when_disabled() {
-    subheader "owsync.conf Removed When sync_method=none"
-
-    # Save original value
-    ORIGINAL_SYNC_METHOD=$(uci_get "$NODE1" "ha-cluster.config.sync_method" 2>/dev/null || echo "owsync")
-
-    # Ensure owsync is enabled first so we actually test the removal
-    if [ "$ORIGINAL_SYNC_METHOD" != "owsync" ]; then
-        info "sync_method is '$ORIGINAL_SYNC_METHOD', enabling owsync first"
-        for node in "$NODE1" "$NODE2"; do
-            uci_set "$node" "ha-cluster.config.sync_method" "owsync"
-            uci_commit "$node" "ha-cluster"
-        done
-
-        # Restart to generate owsync.conf
-        for node in "$NODE1" "$NODE2"; do
-            stop_ha_cluster "$node" 2>/dev/null || true
-        done
-        for node in "$NODE1" "$NODE2"; do
-            wait_for_service_stopped "$node" "keepalived" 10
-        done
-        for node in "$NODE1" "$NODE2"; do
-            start_ha_cluster "$node" 2>/dev/null || true
-        done
-        for node in "$NODE1" "$NODE2"; do
-            wait_for_service "$node" "keepalived" 30
-        done
-    fi
+    subheader "owsync.conf Removed When No Sync Group Is Enabled"
 
     # Verify owsync.conf exists before disabling
     for node in "$NODE1" "$NODE2"; do
         if ! file_exists_on_node "$node" "$OWSYNC_CONF" 2>/dev/null; then
-            fail "owsync.conf should exist on $node before disabling (sync_method=owsync)"
+            fail "owsync.conf should exist on $node before disabling (sync group enabled)"
             return 1
         fi
     done
     info "Confirmed owsync.conf exists on both nodes"
 
-    # Disable owsync
+    # Disable every enabled sync group
+    DISABLED_SYNC_GROUPS=$(get_enabled_sync_groups "$NODE1")
+    info "Disabling sync groups: $(echo $DISABLED_SYNC_GROUPS)"
     for node in "$NODE1" "$NODE2"; do
-        uci_set "$node" "ha-cluster.config.sync_method" "none"
+        for group in $DISABLED_SYNC_GROUPS; do
+            uci_set "$node" "ha-cluster.$group.enabled" "0"
+        done
         uci_commit "$node" "ha-cluster"
     done
 
@@ -743,7 +735,7 @@ test_owsync_conf_removed_when_disabled() {
     # Verify owsync.conf is gone
     for node in "$NODE1" "$NODE2"; do
         if file_exists_on_node "$node" "$OWSYNC_CONF" 2>/dev/null; then
-            fail "Stale owsync.conf still exists on $node after disabling owsync"
+            fail "Stale owsync.conf still exists on $node after disabling every sync group"
             return 1
         else
             pass "owsync.conf removed on $node"
@@ -753,18 +745,15 @@ test_owsync_conf_removed_when_disabled() {
     # Verify owsync is not running
     for node in "$NODE1" "$NODE2"; do
         if service_running "$node" "owsync"; then
-            fail "owsync still running on $node with sync_method=none"
+            fail "owsync still running on $node with no sync group enabled"
             return 1
         else
             pass "owsync not running on $node"
         fi
     done
 
-    # Restore sync_method before next test so cluster is in a known state
-    for node in "$NODE1" "$NODE2"; do
-        uci_set "$node" "ha-cluster.config.sync_method" "$ORIGINAL_SYNC_METHOD"
-        uci_commit "$node" "ha-cluster"
-    done
+    # Restore the sync groups before next test so cluster is in a known state
+    restore_sync_groups
     for node in "$NODE1" "$NODE2"; do
         stop_ha_cluster "$node" 2>/dev/null || true
     done
@@ -777,21 +766,20 @@ test_owsync_conf_removed_when_disabled() {
     for node in "$NODE1" "$NODE2"; do
         wait_for_service "$node" "keepalived" 30
     done
-    info "Restored sync_method=$ORIGINAL_SYNC_METHOD between tests"
+    info "Restored sync groups between tests"
 }
 
 test_lease_sync_conf_removed_when_disabled() {
     subheader "lease-sync.conf Removed When Lease Sync Disabled"
 
     # Save original value
-    ORIGINAL_SYNC_LEASES=$(uci_get "$NODE1" "ha-cluster.dhcp.sync_leases" 2>/dev/null || echo "1")
+    ORIGINAL_LEASE_SYNC=$(uci_get "$NODE1" "ha-cluster.config.lease_sync" 2>/dev/null || echo "0")
 
     # Ensure lease sync is enabled first so we actually test the removal
-    if [ "$ORIGINAL_SYNC_LEASES" != "1" ]; then
-        info "sync_leases is '$ORIGINAL_SYNC_LEASES', enabling lease sync first"
+    if [ "$ORIGINAL_LEASE_SYNC" != "1" ]; then
+        info "lease_sync is '$ORIGINAL_LEASE_SYNC', enabling lease sync first"
         for node in "$NODE1" "$NODE2"; do
-            uci_set "$node" "ha-cluster.dhcp.sync_leases" "1"
-            uci_set "$node" "ha-cluster.dhcp.enabled" "1"
+            uci_set "$node" "ha-cluster.config.lease_sync" "1"
             uci_commit "$node" "ha-cluster"
         done
 
@@ -821,7 +809,7 @@ test_lease_sync_conf_removed_when_disabled() {
 
     # Disable lease sync
     for node in "$NODE1" "$NODE2"; do
-        uci_set "$node" "ha-cluster.dhcp.sync_leases" "0"
+        uci_set "$node" "ha-cluster.config.lease_sync" "0"
         uci_commit "$node" "ha-cluster"
     done
 
@@ -852,7 +840,7 @@ test_lease_sync_conf_removed_when_disabled() {
     # Verify lease-sync is not running
     for node in "$NODE1" "$NODE2"; do
         if service_running "$node" "lease-sync"; then
-            fail "lease-sync still running on $node with sync_leases=0"
+            fail "lease-sync still running on $node with lease_sync=0"
             return 1
         else
             pass "lease-sync not running on $node"
@@ -876,12 +864,10 @@ cleanup() {
     done
 
     # Restore original values
+    restore_sync_groups
     for node in "$NODE1" "$NODE2"; do
-        if [ -n "$ORIGINAL_SYNC_METHOD" ]; then
-            uci_set "$node" "ha-cluster.config.sync_method" "$ORIGINAL_SYNC_METHOD"
-        fi
-        if [ -n "$ORIGINAL_SYNC_LEASES" ]; then
-            uci_set "$node" "ha-cluster.dhcp.sync_leases" "$ORIGINAL_SYNC_LEASES"
+        if [ -n "$ORIGINAL_LEASE_SYNC" ]; then
+            uci_set "$node" "ha-cluster.config.lease_sync" "$ORIGINAL_LEASE_SYNC"
         fi
         uci_commit "$node" "ha-cluster"
     done
@@ -915,9 +901,9 @@ main() {
     test_unicast_auto_derivation || result=1
     test_multicast_no_unicast_block || result=1
 
-    # sync_enabled filtering tests
-    test_sync_enabled_filtering || result=1
-    test_sync_enabled_unicast_included || result=1
+    # vrrp_only filtering tests
+    test_vrrp_only_filtering || result=1
+    test_vrrp_only_unicast_included || result=1
 
     # Sync group tests
     test_sync_group_enabled_default || result=1

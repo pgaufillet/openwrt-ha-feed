@@ -24,7 +24,7 @@ LEASE_SYNC_INIT="/etc/init.d/lease-sync"
 LEASE_SYNC_CONF="/tmp/ha-cluster/lease-sync.conf"
 
 # Saved state for restoration
-ORIGINAL_SYNC_LEASES=""
+ORIGINAL_LEASE_SYNC=""
 
 # ============================================
 # Test Setup
@@ -33,9 +33,9 @@ ORIGINAL_SYNC_LEASES=""
 setup() {
     subheader "Test Setup"
 
-    # Save original sync_leases value (same on both nodes)
-    ORIGINAL_SYNC_LEASES=$(uci_get "$NODE1" "ha-cluster.dhcp.sync_leases" 2>/dev/null || echo "1")
-    info "Original sync_leases=$ORIGINAL_SYNC_LEASES"
+    # Save original lease_sync value (same on both nodes)
+    ORIGINAL_LEASE_SYNC=$(uci_get "$NODE1" "ha-cluster.config.lease_sync" 2>/dev/null || echo "0")
+    info "Original lease_sync=$ORIGINAL_LEASE_SYNC"
 
     # Stop ha-cluster cleanly before modifying binaries
     for node in "$NODE1" "$NODE2"; do
@@ -73,7 +73,7 @@ setup() {
         fi
 
         # Disable lease sync via UCI
-        uci_set "$node" "ha-cluster.dhcp.sync_leases" "0"
+        uci_set "$node" "ha-cluster.config.lease_sync" "0"
         uci_commit "$node" "ha-cluster"
 
         # Remove stale config from previous run (generated when sync was enabled)
@@ -107,10 +107,8 @@ test_owsync_running() {
     subheader "Owsync Running Without lease-sync"
 
     for node in "$NODE1" "$NODE2"; do
-        local sync_method
-        sync_method=$(uci_get "$node" "ha-cluster.config.sync_method" 2>/dev/null || echo "owsync")
-        if [ "$sync_method" != "owsync" ]; then
-            skip "owsync not expected on $node (sync_method=$sync_method)" "by design"
+        if [ -z "$(get_enabled_sync_groups "$node")" ]; then
+            skip "owsync not expected on $node (no sync group enabled)" "by design"
             continue
         fi
 
@@ -239,9 +237,9 @@ cleanup() {
         # Restore lease-sync init script
         exec_node "$node" sh -c "[ -f ${LEASE_SYNC_INIT}.bak ] && mv ${LEASE_SYNC_INIT}.bak $LEASE_SYNC_INIT" 2>/dev/null || true
 
-        # Restore UCI sync_leases setting
-        if [ -n "$ORIGINAL_SYNC_LEASES" ]; then
-            uci_set "$node" "ha-cluster.dhcp.sync_leases" "$ORIGINAL_SYNC_LEASES"
+        # Restore UCI lease_sync setting
+        if [ -n "$ORIGINAL_LEASE_SYNC" ]; then
+            uci_set "$node" "ha-cluster.config.lease_sync" "$ORIGINAL_LEASE_SYNC"
             uci_commit "$node" "ha-cluster"
         fi
     done
@@ -255,7 +253,7 @@ cleanup() {
     wait_for_cluster_healthy 30
 
     # Wait for lease-sync to restore if it was originally enabled
-    if [ "$ORIGINAL_SYNC_LEASES" = "1" ]; then
+    if [ "$ORIGINAL_LEASE_SYNC" = "1" ]; then
         for node in "$NODE1" "$NODE2"; do
             if wait_for_service "$node" "lease-sync" 15; then
                 info "lease-sync restored on $node"

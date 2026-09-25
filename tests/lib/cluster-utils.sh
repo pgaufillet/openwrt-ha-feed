@@ -778,6 +778,21 @@ uci_commit() {
     fi
 }
 
+# List the enabled sync groups of a node (no enabled option = enabled)
+# Usage: groups=$(get_enabled_sync_groups "node1")
+get_enabled_sync_groups() {
+    local node="$1"
+    exec_node "$node" sh -c '
+        . /lib/functions.sh
+        print_enabled() {
+            local enabled
+            config_get_bool enabled "$1" enabled 1
+            [ "$enabled" -eq 1 ] && echo "$1"
+        }
+        config_load ha-cluster
+        config_foreach print_enabled sync_group' 2>/dev/null
+}
+
 # ============================================
 # Network Helpers
 # ============================================

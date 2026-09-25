@@ -4,8 +4,8 @@
 config config 'config'
     option enabled '1'
     option encryption_key '7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e'
-    option sync_method 'owsync'
     option sync_interval '30'
+    option lease_sync '1'
 
 config vrrp_instance 'main'
     option vrid '51'
@@ -24,12 +24,11 @@ config peer 'peer1'
     option name 'ha-node2'
     option address '172.30.0.11'
 
-config service 'dhcp'
+config sync_group 'dhcp'
     option enabled '1'
-    option sync_leases '1'
     list config_files 'dhcp'
 
-config service 'firewall'
+config sync_group 'firewall'
     option enabled '0'
     list config_files 'firewall'
 
