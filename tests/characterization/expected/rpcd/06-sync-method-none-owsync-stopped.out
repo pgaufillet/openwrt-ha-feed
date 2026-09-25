@@ -36,6 +36,6 @@
     },
     "sync": {
         "config_last_sync": 0,
-        "lease_last_sync": 1767225600
+        "lease_last_sync": 0
     }
 }

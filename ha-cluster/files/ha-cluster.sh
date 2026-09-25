@@ -153,6 +153,29 @@ ha_has_sync_peer() {
 	[ "$_ha_sync_peer_count" -gt 0 ]
 }
 
+_ha_include_count=0
+_ha_count_include() {
+	_ha_include_count=$((_ha_include_count + 1))
+}
+
+_ha_count_group_includes() {
+	local section="$1"
+	local enabled
+
+	config_get_bool enabled "$section" enabled 1
+	[ "$enabled" -eq 0 ] && return 0
+
+	config_list_foreach "$section" config_files _ha_count_include
+}
+
+# Usage: ha_owsync_wanted (ha-cluster config loaded)
+# An enabled sync group lists files and there is a peer to sync with.
+ha_owsync_wanted() {
+	_ha_include_count=0
+	config_foreach _ha_count_group_includes service
+	[ "$_ha_include_count" -gt 0 ] && ha_has_sync_peer
+}
+
 # Usage: ha_lease_sync_wanted (ha-cluster config loaded)
 # Lease sync is enabled and has a peer to sync with.
 ha_lease_sync_wanted() {
@@ -526,15 +549,20 @@ EOF
 }
 
 ha_generate_owsync_conf() {
-	local sync_method encryption_key sync_port sync_dir sync_interval owsync_log_level bind_address
+	local encryption_key sync_port sync_dir sync_interval owsync_log_level bind_address
 
 	config_load ha-cluster
-	config_get sync_method config sync_method "owsync"
 
-	[ "$sync_method" != "owsync" ] && {
+	if ! ha_owsync_wanted; then
+		ha_log_debug "Config sync: no enabled sync group or no peer to sync with"
 		rm -f "$OWSYNC_CONF"
 		return 0
-	}
+	fi
+	if [ ! -x "$OWSYNC_BIN" ]; then
+		ha_log_warning "Config sync enabled but owsync is not installed"
+		rm -f "$OWSYNC_CONF"
+		return 0
+	fi
 
 	config_get encryption_key config encryption_key ""
 	config_get sync_port config sync_port "4321"
@@ -752,6 +780,14 @@ ha_validate_config() {
 	[ "$enabled" -eq 0 ] && return 0
 
 	config_foreach ha_check_vrid_unique vrrp_instance
+
+	# owsync is the only sync backend
+	local sync_method
+	config_get sync_method config sync_method "owsync"
+	[ "$sync_method" != "owsync" ] && {
+		ha_log_error "sync_method '$sync_method' is not supported (only 'owsync')"
+		errors=$((errors + 1))
+	}
 
 	local peer_count=0
 	config_foreach ha_count_peers peer
