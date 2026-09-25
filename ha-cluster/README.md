@@ -42,12 +42,14 @@ before the swap.
 
 ## Dependencies
 
-- `keepalived` - VRRP failover
-- `owsync` - Bidirectional config file synchronization
-- `lease-sync` - Real-time DHCP lease replication via dnsmasq ubus
-- `dnsmasq-ha` - dnsmasq with ubus lease methods
+- `keepalived` - VRRP failover (required)
 
-Optional: `luci-app-ha-cluster` for web interface.
+Used when installed:
+
+- `owsync` - Bidirectional config file synchronization
+- `lease-sync` and `dnsmasq-ha` (dnsmasq with ubus lease methods) -
+  Real-time DHCP lease replication
+- `luci-app-ha-cluster` - Web interface
 
 ## How It Works
 
@@ -67,6 +69,33 @@ stops.
 
 Configuration changes are applied on reload (`reload_config`, or LuCI's
 Save & Apply).
+
+### Which daemons run
+
+keepalived always runs while ha-cluster is enabled. The sync daemons run
+only when they are installed, at least one peer with an address is not
+`vrrp_only`, and:
+
+- owsync: at least one enabled sync group lists files
+- lease-sync: `lease_sync='1'`
+
+A sync daemon that has work but is not installed is logged as a warning;
+the cluster still starts.
+
+### Settings that must match on all nodes
+
+`/etc/config/ha-cluster` is never synced (it is excluded by default), so
+these settings must be set identically on every node:
+
+- `encryption_key`, `vrrp_transport`, `lease_sync`, `sync_port`,
+  `sync_dir`
+- the sync groups and exclusions
+- `lease_sync_port` (advanced)
+- for each VRRP instance: `vrid`, `advert_int`, `auth_type`, `auth_pass`,
+  and its VIPs
+
+Node-specific: `node_priority` and instance `priority`, the peers, their
+`source_address`, and `bind_address`.
 
 ## Quick Start
 
@@ -108,7 +137,7 @@ Repeat on each peer node with the appropriate priority and peer addresses.
 
 ## DHCP Prerequisites
 
-When using lease sync (`sync_leases='1'`), each VIP interface must have
+When using lease sync (`lease_sync='1'`), each VIP interface must have
 `force=1` in its DHCP configuration:
 
 ```sh
@@ -139,8 +168,9 @@ All configuration lives in `/etc/config/ha-cluster`.
 | `enabled` | bool | `0` | Enable/disable ha-cluster |
 | `node_priority` | int | `100` | VRRP priority (1-255, higher wins MASTER) |
 | `vrrp_transport` | string | `multicast` | VRRP transport: `multicast` or `unicast`. When `unicast`, auto-derives addresses from peer config |
-| `sync_method` | string | `owsync` | Sync backend: `owsync` or `none` |
+| `sync_method` | string | `owsync` | File sync backend; `owsync` is the only one, ha-cluster refuses to start with any other value |
 | `encryption_key` | string | | 256-bit hex key enabling AES-256-GCM (empty = plaintext); use LuCI "Generate" button or `hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom` |
+| `lease_sync` | bool | `0` | DHCP lease sync (lease-sync and dnsmasq-ha); the shipped config sets it to `1` |
 | `sync_port` | int | `4321` | owsync TCP port |
 | `sync_dir` | string | `/etc/config` | Directory to synchronize |
 | `bind_address` | string | | Local IP for sync traffic (use real IP, not VIP) |
@@ -191,17 +221,16 @@ same instance for atomic failover.
 | `name` | string | | Peer identifier |
 | `address` | string | | Peer IP address |
 | `source_address` | string | | Local IP to use when contacting this peer (also used as `unicast_src_ip` for auto-derivation) |
-| `sync_enabled` | bool | `1` | Enable owsync/lease-sync for this peer. Set to `0` for non-OpenWrt peers (VRRP-only) |
+| `vrrp_only` | bool | `0` | Router not running ha-cluster (e.g. not OpenWrt): VRRP peer only, never synced |
 
-### Services (`config service '<name>'`)
+### Sync groups (`config sync_group '<name>'`)
 
-Each service section defines a sync group for owsync.
+Each section lists files synced by owsync.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `enabled` | bool | `1` | Enable sync for this group |
 | `config_files` | list | | UCI config names or paths to sync |
-| `sync_leases` | bool | `0` | Enable lease-sync daemon (dhcp service only) |
 
 ### Exclusions (`config exclude`)
 

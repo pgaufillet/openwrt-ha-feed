@@ -51,6 +51,35 @@ apk add owsync        # Config sync only
 apk add lease-sync    # DHCP sync only
 ```
 
+## Upgrading
+
+### Sync options renamed
+
+The sync options of `/etc/config/ha-cluster` were renamed after what they
+do. When the new ha-cluster package is installed, a `uci-defaults` script
+migrates the existing file once:
+
+| Before | After |
+|--------|-------|
+| `config service '<name>'` | `config sync_group '<name>'` |
+| `option sync_leases` in the `dhcp` group | `option lease_sync` in `config global 'config'` (an existing `lease_sync` is kept) |
+| `option sync_leases` in any other group | removed (it was never read) |
+| `option sync_method` other than `owsync` (e.g. `none`) | every sync group gets `enabled '0'`, and `sync_method` is removed |
+| peer `option sync_enabled '0'` | peer `option vrrp_only '1'` |
+| peer `option sync_enabled '1'` | removed (default) |
+
+- Upgrade all nodes in the same maintenance window. `/etc/config/ha-cluster`
+  is not synced between nodes: check the migrated file on each one.
+- When an option is changed, `uci commit` rewrites the file and drops its
+  comments. A file that only needs its sections renamed keeps them.
+- The migration leaves an already migrated file unchanged.
+- Scripts that set the old options must be updated: ha-cluster refuses to
+  start with a `sync_method` other than `owsync`, and ignores
+  `sync_leases` and `sync_enabled`.
+- `ubus call owsync status` now reports `enabled` from the standalone
+  owsync configuration (`/etc/config/owsync`) only; an owsync instance
+  run by ha-cluster shows in its `status` field.
+
 ## Quick Start
 
 ### Quick Setup (5 minutes)
