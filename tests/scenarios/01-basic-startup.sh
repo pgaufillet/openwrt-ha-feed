@@ -291,8 +291,7 @@ main() {
     # Non-fatal: owsync may not run if sync_method is not 'owsync' or config sync is disabled
     run_nonfatal test_owsync_running "optional service - depends on sync_method config"
 
-    # Non-fatal: owsync rpcd status interface (monitoring only)
-    run_nonfatal test_owsync_rpcd_status "optional - rpcd handler may not be installed"
+    test_owsync_rpcd_status || return 1
 
     # Non-fatal: lease-sync may not run if sync_leases is disabled in ha-cluster config
     run_nonfatal test_lease_sync_running "optional service - depends on sync_leases config"
