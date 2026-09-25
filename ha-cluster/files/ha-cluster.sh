@@ -12,6 +12,8 @@ HA_CLUSTER_RUN_DIR="/tmp/ha-cluster"
 KEEPALIVED_CONF="${HA_CLUSTER_RUN_DIR}/keepalived.conf"
 OWSYNC_CONF="${HA_CLUSTER_RUN_DIR}/owsync.conf"
 LEASE_SYNC_CONF="${HA_CLUSTER_RUN_DIR}/lease-sync.conf"
+OWSYNC_BIN="/usr/bin/owsync"
+LEASE_SYNC_BIN="/usr/sbin/lease-sync"
 
 HA_LOG_LEVEL_ERROR=0
 HA_LOG_LEVEL_WARNING=1
@@ -129,6 +131,41 @@ _ha_collect_peer_address() {
 	if [ -z "$_ha_peer_source_address" ] && [ -n "$source_address" ]; then
 		_ha_peer_source_address="$source_address"
 	fi
+}
+
+# Peers running ha-cluster (not VRRP-only) and having an address
+_ha_sync_peer_count=0
+_ha_count_sync_peer() {
+	local section="$1"
+	local address sync_enabled
+
+	config_get_bool sync_enabled "$section" sync_enabled 1
+	[ "$sync_enabled" -eq 0 ] && return 0
+
+	config_get address "$section" address ""
+	[ -n "$address" ] && _ha_sync_peer_count=$((_ha_sync_peer_count + 1))
+}
+
+# Usage: ha_has_sync_peer (ha-cluster config loaded)
+ha_has_sync_peer() {
+	_ha_sync_peer_count=0
+	config_foreach _ha_count_sync_peer peer
+	[ "$_ha_sync_peer_count" -gt 0 ]
+}
+
+# Usage: ha_lease_sync_wanted (ha-cluster config loaded)
+# Lease sync is enabled and has a peer to sync with.
+ha_lease_sync_wanted() {
+	local lease_sync
+
+	config_get_bool lease_sync dhcp sync_leases 0
+	[ "$lease_sync" -eq 1 ] && ha_has_sync_peer
+}
+
+# Usage: ha_lease_sync_active (ha-cluster config loaded)
+# Gates the lease-sync config, the dhcp force check and the dnsmasq overlay.
+ha_lease_sync_active() {
+	ha_lease_sync_wanted && [ -x "$LEASE_SYNC_BIN" ]
 }
 
 ha_generate_keepalived_conf() {
@@ -606,13 +643,11 @@ ha_add_owsync_exclude_conf() {
 }
 
 ha_generate_lease_sync_conf() {
-	local dhcp_service_enabled lease_sync_enabled lease_sync_port encryption_key
+	local lease_sync_port encryption_key
 	local sync_interval peer_timeout persist_interval log_level node_name bind_address
 
 	config_load ha-cluster
 
-	config_get_bool dhcp_service_enabled dhcp enabled 0
-	config_get_bool lease_sync_enabled dhcp sync_leases 0
 	config_get lease_sync_port advanced lease_sync_port "5378"
 	config_get sync_interval advanced lease_sync_interval "30"
 	config_get peer_timeout advanced lease_sync_peer_timeout "120"
@@ -622,11 +657,16 @@ ha_generate_lease_sync_conf() {
 	config_get bind_address config bind_address ""
 	node_name="$(cat /proc/sys/kernel/hostname)"
 
-	[ "$dhcp_service_enabled" -eq 0 ] || [ "$lease_sync_enabled" -eq 0 ] && {
-		ha_log_debug "DHCP lease sync disabled"
+	if ! ha_lease_sync_wanted; then
+		ha_log_debug "DHCP lease sync disabled or no peer to sync with"
 		rm -f "$LEASE_SYNC_CONF"
 		return 0
-	}
+	fi
+	if [ ! -x "$LEASE_SYNC_BIN" ]; then
+		ha_log_warning "DHCP lease sync enabled but lease-sync is not installed"
+		rm -f "$LEASE_SYNC_CONF"
+		return 0
+	fi
 
 	ha_log "Generating lease-sync configuration"
 
@@ -719,12 +759,10 @@ ha_validate_config() {
 		ha_log_warning "No peers configured - HA will not function"
 	}
 
-	# When lease sync is enabled, VIP interfaces need dhcp.*.force=1
+	# When lease sync is active, VIP interfaces need dhcp.*.force=1
 	# so that dnsmasq initializes DHCP (required for ubus add_lease).
 	# Without it, the BACKUP node cannot receive synced leases.
-	local lease_sync_enabled
-	config_get_bool lease_sync_enabled dhcp sync_leases 0
-	if [ "$lease_sync_enabled" -eq 1 ]; then
+	if ha_lease_sync_active; then
 		_ha_dhcp_force_checked=""
 		config_foreach _ha_check_dhcp_force vip
 	fi
@@ -868,16 +906,16 @@ ha_get_dnsmasq_confdir() {
 }
 
 ha_configure_dnsmasq() {
-	local lease_sync_enabled needs_restart=0
+	local lease_sync_active=0 needs_restart=0
 	local confdir overlay_path tmp_overlay
 
 	config_load ha-cluster
-	config_get_bool lease_sync_enabled dhcp sync_leases 0
+	ha_lease_sync_active && lease_sync_active=1
 
 	confdir="$(ha_get_dnsmasq_confdir)"
 	overlay_path="$confdir/$HA_DNSMASQ_OVERLAY_NAME"
 
-	if [ "$lease_sync_enabled" -eq 1 ]; then
+	if [ "$lease_sync_active" -eq 1 ]; then
 		mkdir -p "$confdir"
 		# Dot-prefixed so dnsmasq skips it if it (re)starts before the mv
 		tmp_overlay="$confdir/.$HA_DNSMASQ_OVERLAY_NAME.new"
@@ -895,7 +933,7 @@ ha_configure_dnsmasq() {
 			ha_log "Wrote dnsmasq HA overlay to $overlay_path"
 		fi
 	elif [ -f "$overlay_path" ]; then
-		# Left over from a run with sync_leases enabled
+		# Left over from a run with lease sync active
 		rm -f "$overlay_path"
 		needs_restart=1
 		ha_log "Removed stale dnsmasq HA overlay"
