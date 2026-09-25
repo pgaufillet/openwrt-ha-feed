@@ -96,9 +96,7 @@ ha-cluster|daemon.info|dnsmasq restarted
 ha-cluster|daemon.info|Generating keepalived configuration for node: ha-char
 ha-cluster|daemon.info|Keepalived configuration generated at /tmp/ha-cluster/keepalived.conf
 ha-cluster|daemon.info|Generating owsync configuration
-ha-cluster|daemon.warning|No encryption_key set - owsync will run without encryption
-ha-cluster|daemon.warning|For production: Generate a key with 'owsync genkey' and set it in both nodes
-ha-cluster|daemon.warning|Add to /etc/config/ha-cluster: option encryption_key '<your-key>'
+ha-cluster|daemon.warning|No encryption_key set - owsync will run without encryption; set the same key on all nodes, generated in LuCI or with: hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom
 ha-cluster|daemon.info|owsync configuration generated at /tmp/ha-cluster/owsync.conf
 ha-cluster|daemon.info|Generating lease-sync configuration
 ha-cluster|daemon.warning|lease-sync running in plain mode - ensure network-layer security

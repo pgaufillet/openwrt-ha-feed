@@ -602,9 +602,7 @@ EOF
 		echo "# Security: PSK encryption enabled" >> "$OWSYNC_CONF"
 		echo "encryption_key=${encryption_key}" >> "$OWSYNC_CONF"
 	else
-		ha_log_warning "No encryption_key set - owsync will run without encryption"
-		ha_log_warning "For production: Generate a key with 'owsync genkey' and set it in both nodes"
-		ha_log_warning "Add to /etc/config/ha-cluster: option encryption_key '<your-key>'"
+		ha_log_warning "No encryption_key set - owsync will run without encryption; set the same key on all nodes, generated in LuCI or with: hexdump -n 32 -v -e '1/1 \"%02x\"' /dev/urandom"
 		echo "# Security: Plain mode (use only over secure VPN)" >> "$OWSYNC_CONF"
 		echo "plain_mode=1" >> "$OWSYNC_CONF"
 	fi
