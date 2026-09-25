@@ -416,7 +416,10 @@ test_new_instance_appears_in_config() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30 || rc=1
+    if ! wait_for_service "$node" "keepalived" 30; then
+        fail "keepalived not restarted on $node after cleanup"
+        rc=1
+    fi
 
     return $rc
 }
@@ -470,7 +473,10 @@ test_instance_without_vips_skipped() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30 || rc=1
+    if ! wait_for_service "$node" "keepalived" 30; then
+        fail "keepalived not restarted on $node after cleanup"
+        rc=1
+    fi
 
     return $rc
 }
@@ -536,7 +542,10 @@ test_multiple_instances_same_interface() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30 || rc=1
+    if ! wait_for_service "$node" "keepalived" 30; then
+        fail "keepalived not restarted on $node after cleanup"
+        rc=1
+    fi
 
     return $rc
 }
@@ -599,7 +608,10 @@ test_per_instance_unicast_override() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30 || rc=1
+    if ! wait_for_service "$node" "keepalived" 30; then
+        fail "keepalived not restarted on $node after cleanup"
+        rc=1
+    fi
 
     return $rc
 }
