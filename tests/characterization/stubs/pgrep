@@ -1,0 +1,15 @@
+#!/bin/sh
+# A process runs iff its name is listed in $FAKE_RUNNING. Only plain name
+# matching (with -o) is emulated; other options are refused.
+name=""
+for arg in "$@"; do
+	case "$arg" in
+		-o) ;;
+		-*) echo "pgrep stub: unsupported option $arg" >&2; exit 2 ;;
+		*) name="$arg" ;;
+	esac
+done
+for p in $FAKE_RUNNING; do
+	[ "$p" = "$name" ] && { echo 99999; exit 0; }
+done
+exit 1

@@ -395,6 +395,34 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
   ```
 - Podman users: The setup script automatically detects and works around podman/netavark IPv6 assignment issues. No manual intervention required.
 
+### Characterization (T24)
+
+| ID | Scenario | Validates |
+|----|----------|-----------|
+| T24 | Characterization | Backend and rpcd `status` output unchanged over a matrix of configurations |
+
+T24 runs each case of `characterization/{backend,rpcd}/cases/` in a
+throwaway `ha-cluster-node` container (no network), against the
+working-tree `ha-cluster.sh`, init script and rpcd handler, with
+`logger`, `pgrep`, `ubus` and `ping` stubbed. It compares the result
+(effective UCI, procd instances, log lines, generated configs, dnsmasq
+overlay, saved service state and rc.d links, rpcd JSON) with
+`characterization/expected/`. Only the node image is needed, not a
+running cluster; the host needs `python3`. The bind mounts carry no
+SELinux label option: on an SELinux host, relabel the feed checkout or
+run T24 with SELinux permissive.
+
+A case file is sourced with `set -e` before the start: it changes UCI,
+creates or removes files, and sets the stub inputs (`FAKE_RUNNING`,
+`FAKE_ONLINE`, `FAKE_KEEPALIVED`). `STEP2=reload|stop`, with an optional
+`step2` function, observes a second step after the start.
+
+An intended behaviour change is recorded by regenerating the expected
+files and committing their diff with the change:
+```bash
+CHAR_UPDATE=1 sh scenarios/24-characterization.sh
+```
+
 ## Usage
 
 ### Run All Priority 1 Tests

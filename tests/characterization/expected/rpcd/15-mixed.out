@@ -1,0 +1,41 @@
+== status rc=0
+{
+    "role": "MIXED",
+    "instances": {
+        "1": "MASTER",
+        "2": "BACKUP"
+    },
+    "peers": [
+        {
+            "name": "node2",
+            "address": "172.30.0.11",
+            "online": true,
+            "last_seen": "Just now"
+        }
+    ],
+    "state": "HEALTHY",
+    "services": {
+        "keepalived": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        },
+        "owsync": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        },
+        "lease-sync": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        }
+    },
+    "sync": {
+        "config_last_sync": 0,
+        "lease_last_sync": 1767225600
+    }
+}

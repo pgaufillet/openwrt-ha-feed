@@ -1,0 +1,10 @@
+#!/bin/sh
+# A host answers iff its address is listed in $FAKE_ONLINE.
+addr=""
+for arg in "$@"; do
+	addr="$arg"
+done
+for p in $FAKE_ONLINE; do
+	[ "$p" = "$addr" ] && exit 0
+done
+exit 1

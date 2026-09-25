@@ -1,0 +1,7 @@
+#!/bin/sh
+# Only "call keepalived dump" answers, from the $FAKE_KEEPALIVED fixture.
+if [ "$1 $2 $3" = "call keepalived dump" ] && [ -n "$FAKE_KEEPALIVED" ]; then
+	cat "$FAKE_KEEPALIVED"
+	exit 0
+fi
+exit 4

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Records every call as tag|priority|message in $CHAR_LOG.
+tag=""
+prio=""
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-t) tag="$2"; shift 2 ;;
+		-p) prio="$2"; shift 2 ;;
+		--) shift; break ;;
+		-*) echo "logger stub: unsupported option $1" >> "${CHAR_LOG:-/dev/null}"; shift ;;
+		*) break ;;
+	esac
+done
+echo "$tag|$prio|$*" >> "${CHAR_LOG:-/dev/null}"
+exit 0

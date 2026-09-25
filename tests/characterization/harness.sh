@@ -1,0 +1,142 @@
+#!/bin/sh
+# Runs one characterization case in a throwaway node container and prints
+# its observable result.
+# Usage: harness.sh backend|rpcd <case file>
+#
+# A case file is sourced with errexit set. It may change UCI, remove or
+# create files, set the FAKE_* variables read by the stubs, and set
+# STEP2=reload|stop (with an optional step2 function applying changes
+# first) to observe a second step after the first start.
+
+exec 2>&1
+
+mode="$1"
+case_file="$2"
+CHAR=/char
+
+export PATH="$CHAR/stubs:$PATH"
+export CHAR_LOG=/tmp/char.log
+: > "$CHAR_LOG"
+
+cp "$CHAR/base-ha-cluster" /etc/config/ha-cluster
+cp "$CHAR/base-dhcp" /etc/config/dhcp
+rm -rf /tmp/ha-cluster /etc/ha-cluster /tmp/dnsmasq*.d
+rm -f /etc/owsync/owsync.db /tmp/dhcp.leases
+
+# Standalone services enabled, whatever the image build left
+for service in keepalived owsync lease-sync; do
+	[ -x "/etc/init.d/$service" ] && "/etc/init.d/$service" enable
+done
+
+# rpcd defaults: every daemon running, peer reachable, VRRP MASTER
+export FAKE_RUNNING="keepalived owsync lease-sync"
+export FAKE_ONLINE="172.30.0.11"
+export FAKE_KEEPALIVED="$CHAR/rpcd/fixtures/keepalived-master.json"
+
+STEP2=""
+set -e
+. "$case_file"
+uci commit
+set +e
+
+args() {
+	printf ' [%s]' "$@"
+	echo
+}
+
+show_file() {
+	echo "== $1"
+	if [ -f "$1" ]; then
+		cat "$1"
+	else
+		echo "(absent)"
+	fi
+}
+
+show_dir() {
+	echo "== ls $1"
+	if [ -d "$1" ]; then
+		ls -A "$1"
+	else
+		echo "(absent)"
+	fi
+}
+
+# The init script without rc.common: procd calls are printed, and
+# start/stop run the service functions directly.
+load_init() {
+	. /etc/init.d/ha-cluster
+
+	procd_open_instance() { printf 'instance'; args "$@"; }
+	procd_set_param() { printf '\tset'; args "$@"; }
+	procd_append_param() { printf '\tappend'; args "$@"; }
+	procd_close_instance() { echo "end"; }
+	procd_add_reload_trigger() { printf 'reload_trigger'; args "$@"; }
+	procd_running() { return 0; }
+	procd_send_signal() { printf 'signal'; args "$@"; }
+	start() { start_service; }
+	stop() { stop_service; }
+}
+
+observe() {
+	echo "== log"
+	cat "$CHAR_LOG"
+	: > "$CHAR_LOG"
+	show_dir "$HA_CLUSTER_RUN_DIR"
+	show_file "$KEEPALIVED_CONF"
+	show_file "$OWSYNC_CONF"
+	show_file "$LEASE_SYNC_CONF"
+	local confdir
+	confdir="$(ha_get_dnsmasq_confdir)"
+	show_dir "$confdir"
+	show_file "$confdir/$HA_DNSMASQ_OVERLAY_NAME"
+	show_dir /etc/ha-cluster
+	show_file /etc/ha-cluster/service_states
+	echo "== rc.d"
+	ls /etc/rc.d | grep -E 'keepalived|owsync|lease-sync|ha-cluster' || echo "(none)"
+}
+
+case "$mode" in
+	backend)
+		echo "== uci"
+		uci export ha-cluster
+		uci export dhcp
+
+		load_init
+
+		echo "== start_service"
+		start_service
+		echo "rc=$?"
+		echo "== service_triggers"
+		service_triggers
+		observe
+
+		if [ -n "$STEP2" ]; then
+			set -e
+			command -v step2 >/dev/null && step2
+			uci commit
+			set +e
+			echo "== $STEP2"
+			case "$STEP2" in
+				reload) reload_service ;;
+				stop) stop_service ;;
+			esac
+			echo "rc=$?"
+			observe
+		fi
+		;;
+	rpcd)
+		# rpcd may read what the backend generated
+		( load_init; start_service ) > /dev/null 2>&1
+		# Fixed mtimes for the "last sync" timestamps
+		for f in /etc/owsync/owsync.db /tmp/dhcp.leases; do
+			[ -f "$f" ] && touch -d "2026-01-01 00:00:00" "$f"
+		done
+		# Raw JSON on the last line: a jshn round trip would rename keys
+		out="$(/usr/libexec/rpcd/ha-cluster call status)"
+		echo "== status rc=$?"
+		echo "$out"
+		;;
+esac
+
+exit 0

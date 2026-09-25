@@ -1,0 +1,34 @@
+== status rc=0
+{
+    "role": "MASTER",
+    "instances": {
+        "1": "MASTER",
+        "2": "MASTER"
+    },
+    "peers": [],
+    "state": "HEALTHY",
+    "services": {
+        "keepalived": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        },
+        "owsync": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        },
+        "lease-sync": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        }
+    },
+    "sync": {
+        "config_last_sync": 0,
+        "lease_last_sync": 1767225600
+    }
+}
