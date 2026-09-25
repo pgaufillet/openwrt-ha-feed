@@ -204,16 +204,16 @@ test_no_state_corruption() {
     subheader "No State Corruption After Recovery"
 
     # Verify all services running on both nodes
-    local all_ok=true
+    local rc=0
 
     for node in "$NODE1" "$NODE2"; do
         if ! service_running "$node" "keepalived"; then
             fail "keepalived not running on $node after recovery"
-            all_ok=false
+            rc=1
         fi
     done
 
-    if [ "$all_ok" = "true" ]; then
+    if [ "$rc" -eq 0 ]; then
         pass "All keepalived instances running"
     fi
 
@@ -228,6 +228,7 @@ test_no_state_corruption() {
         return 1
     fi
 
+    [ "$rc" -eq 0 ] || return 1
     pass "No state corruption detected"
 }
 

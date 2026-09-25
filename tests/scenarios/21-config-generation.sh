@@ -360,6 +360,7 @@ test_new_instance_appears_in_config() {
     subheader "New Instance With VIP Appears In keepalived.conf"
 
     local node="$NODE1"
+    local rc=0
 
     # Create a second instance
     uci_set "$node" "ha-cluster.guest_1" "vrrp_instance"
@@ -405,6 +406,7 @@ test_new_instance_appears_in_config() {
         pass "Instance guest_1 has VRID 72"
     else
         fail "VRID 72 not found in keepalived.conf"
+        rc=1
     fi
 
     # Cleanup
@@ -414,13 +416,16 @@ test_new_instance_appears_in_config() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30
+    wait_for_service "$node" "keepalived" 30 || rc=1
+
+    return $rc
 }
 
 test_instance_without_vips_skipped() {
     subheader "Instance With No VIPs Skipped In keepalived.conf"
 
     local node="$NODE1"
+    local rc=0
 
     # Create instance with no VIPs
     uci_set "$node" "ha-cluster.empty_1" "vrrp_instance"
@@ -456,6 +461,7 @@ test_instance_without_vips_skipped() {
         pass "Original instance 'main' still present"
     else
         fail "Original instance 'main' missing"
+        rc=1
     fi
 
     # Cleanup
@@ -464,13 +470,16 @@ test_instance_without_vips_skipped() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30
+    wait_for_service "$node" "keepalived" 30 || rc=1
+
+    return $rc
 }
 
 test_multiple_instances_same_interface() {
     subheader "Multiple Instances On Same Interface Both Generated"
 
     local node="$NODE1"
+    local rc=0
 
     # Add second instance on lan (same interface as 'main')
     uci_set "$node" "ha-cluster.lan_2" "vrrp_instance"
@@ -501,12 +510,14 @@ test_multiple_instances_same_interface() {
         pass "Original instance 'main' present"
     else
         fail "Instance 'main' missing"
+        rc=1
     fi
 
     if echo "$conf" | grep -q "vrrp_instance lan_2 {"; then
         pass "Second instance 'lan_2' present"
     else
         fail "Instance 'lan_2' not found"
+        rc=1
         info "Instances: $(echo "$conf" | grep 'vrrp_instance ')"
     fi
 
@@ -515,6 +526,7 @@ test_multiple_instances_same_interface() {
         pass "lan_2 has VRID 52"
     else
         fail "VRID 52 not found"
+        rc=1
     fi
 
     # Cleanup
@@ -524,13 +536,16 @@ test_multiple_instances_same_interface() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30
+    wait_for_service "$node" "keepalived" 30 || rc=1
+
+    return $rc
 }
 
 test_per_instance_unicast_override() {
     subheader "Per-Instance Unicast Override Takes Precedence"
 
     local node="$NODE1"
+    local rc=0
 
     # Set global unicast
     uci_set "$node" "ha-cluster.config.vrrp_transport" "unicast"
@@ -554,6 +569,7 @@ test_per_instance_unicast_override() {
         pass "Per-instance unicast_src_ip override used (10.88.0.1)"
     else
         fail "Per-instance override not used"
+        rc=1
         info "Expected: unicast_src_ip 10.88.0.1"
         info "Got: $(echo "$conf" | grep 'unicast_src_ip')"
     fi
@@ -562,12 +578,14 @@ test_per_instance_unicast_override() {
         pass "Per-instance unicast_peer override used (10.88.0.2)"
     else
         fail "Per-instance unicast_peer override not used"
+        rc=1
         info "Got: $(echo "$conf" | grep -A5 'unicast_peer')"
     fi
 
     # Auto-derived source (10.99.0.1) should NOT appear
     if echo "$conf" | grep -q "unicast_src_ip 10.99.0.1"; then
         fail "Auto-derived unicast_src_ip should be overridden"
+        rc=1
     else
         pass "Auto-derived value correctly overridden"
     fi
@@ -581,7 +599,9 @@ test_per_instance_unicast_override() {
     stop_ha_cluster "$node" 2>/dev/null || true
     wait_for_service_stopped "$node" "keepalived" 10
     start_ha_cluster "$node" 2>/dev/null || true
-    wait_for_service "$node" "keepalived" 30
+    wait_for_service "$node" "keepalived" 30 || rc=1
+
+    return $rc
 }
 
 # ============================================
@@ -592,6 +612,7 @@ test_missing_force_rejected() {
     subheader "Missing force=1 Rejected At Startup"
 
     local node="$NODE1"
+    local rc=0
 
     # Remove force=1 from dhcp config
     exec_node "$node" uci delete dhcp.lan.force 2>/dev/null || true
@@ -626,6 +647,7 @@ test_missing_force_rejected() {
         pass "Error message mentions force=1 requirement"
     else
         fail "Expected error message about force=1 not found in logs"
+        rc=1
     fi
 
     # Restore force=1 and restart
@@ -640,6 +662,8 @@ test_missing_force_rejected() {
         fail "ha-cluster failed to start after restoring force=1"
         return 1
     fi
+
+    return $rc
 }
 
 # ============================================

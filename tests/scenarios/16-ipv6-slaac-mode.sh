@@ -254,6 +254,8 @@ test_client_connectivity() {
 test_slaac_failover() {
     subheader "SLAAC Address Survives VIP Failover"
 
+    local rc=0
+
     if [ -z "$CLIENT1_SLAAC_IPV6" ]; then
         skip "SLAAC failover test" "Client didn't get SLAAC address"
         return 0
@@ -297,6 +299,7 @@ test_slaac_failover() {
         pass "Client SLAAC address unchanged after failover: $current_ipv6"
     else
         fail "Client SLAAC address changed: $CLIENT1_SLAAC_IPV6 -> $current_ipv6"
+        rc=1
         info "SLAAC addresses should be stable (derived from prefix + interface ID)"
     fi
 
@@ -313,7 +316,7 @@ test_slaac_failover() {
         warn "Client lost IPv6 address after cluster recovery"
     fi
 
-    return 0
+    return $rc
 }
 
 test_no_lease_sync_needed() {

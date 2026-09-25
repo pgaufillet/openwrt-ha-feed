@@ -124,6 +124,8 @@ test_lease_sync_running() {
 test_owsync_rpcd_status() {
     subheader "Owsync Rpcd Status Interface"
 
+    local rc=0
+
     for node in "$NODE1" "$NODE2"; do
         # Check if owsync rpcd handler is available
         if ! exec_node "$node" test -x /usr/libexec/rpcd/owsync 2>/dev/null; then
@@ -166,6 +168,7 @@ test_owsync_rpcd_status() {
             pass "owsync status reports enabled=true on $node"
         else
             fail "owsync status enabled=$enabled_val on $node (expected true; node is an enabled cluster member)"
+            rc=1
         fi
 
         syncdir_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.config.sync_dir'")
@@ -173,6 +176,7 @@ test_owsync_rpcd_status() {
             pass "owsync status sync_dir=$syncdir_val on $node"
         else
             fail "owsync status sync_dir is empty on $node (UCI fallback broken?)"
+            rc=1
         fi
 
         peercount_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.config.peer_count'")
@@ -180,6 +184,7 @@ test_owsync_rpcd_status() {
             pass "owsync status peer_count=$peercount_val on $node (integer, >=1)"
         else
             fail "owsync status peer_count='$peercount_val' on $node (expected a plain integer >=1)"
+            rc=1
         fi
 
         dbpath_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.database.path'")
@@ -187,8 +192,11 @@ test_owsync_rpcd_status() {
             pass "owsync status db path=$dbpath_val on $node"
         else
             fail "owsync status db path=$dbpath_val on $node (expected /etc/owsync/owsync.db)"
+            rc=1
         fi
     done
+
+    return $rc
 }
 
 test_dnsmasq_ha_overlay() {
