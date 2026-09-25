@@ -31,19 +31,10 @@ case "$1" in
 				db_path=""
 				db_last_modified=0
 
-				# Check if owsync is enabled via standalone config or ha-cluster
+				# Check if owsync is enabled via standalone config
 				if [ -f /etc/config/owsync ]; then
 					owsync_enabled=$(uci -q get owsync.general.enabled)
 					if [ "$owsync_enabled" = "1" ]; then
-						enabled=1
-					fi
-				fi
-
-				# Also check ha-cluster config
-				if [ -f /etc/config/ha-cluster ]; then
-					ha_enabled=$(uci -q get ha-cluster.config.enabled)
-					sync_method=$(uci -q get ha-cluster.config.sync_method)
-					if [ "$ha_enabled" = "1" ] && [ "$sync_method" = "owsync" ]; then
 						enabled=1
 					fi
 				fi

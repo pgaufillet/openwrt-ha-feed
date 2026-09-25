@@ -161,13 +161,16 @@ test_owsync_rpcd_status() {
         fi
 
         # Validate individual status fields (parsed with jsonfilter on the node)
-        local enabled_val syncdir_val peercount_val dbpath_val
+        local enabled_val expected_enabled syncdir_val peercount_val dbpath_val
 
+        # enabled reflects the standalone owsync config only
+        expected_enabled=false
+        [ "$(uci_get "$node" "owsync.general.enabled")" = "1" ] && expected_enabled=true
         enabled_val=$(exec_node "$node" sh -c "ubus call owsync status 2>/dev/null | jsonfilter -e '@.enabled'")
-        if [ "$enabled_val" = "true" ]; then
-            pass "owsync status reports enabled=true on $node"
+        if [ "$enabled_val" = "$expected_enabled" ]; then
+            pass "owsync status reports enabled=$enabled_val on $node (standalone config)"
         else
-            fail "owsync status enabled=$enabled_val on $node (expected true; node is an enabled cluster member)"
+            fail "owsync status enabled=$enabled_val on $node (expected $expected_enabled from owsync.general.enabled)"
             rc=1
         fi
 
