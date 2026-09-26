@@ -4,6 +4,10 @@
 
 . /usr/share/libubox/jshn.sh
 
+# Written by the ha-cluster backend
+OWSYNC_CONF="/tmp/ha-cluster/owsync.conf"
+LEASE_SYNC_CONF="/tmp/ha-cluster/lease-sync.conf"
+
 case "$1" in
 	list)
 		# List available methods and their parameters
@@ -49,6 +53,8 @@ case "$1" in
 				peers_online=0
 				peers_total=0
 				instance_roles=""
+				owsync_required=0
+				lease_sync_required=0
 
 				# Check if ha-cluster is enabled
 				ha_enabled=$(uci -q get ha-cluster.config.enabled)
@@ -133,38 +139,31 @@ case "$1" in
 					# Ensure node_role is always set (fallback if parsing failed)
 					node_role="${node_role:-UNKNOWN}"
 
-					# Check critical services based on configuration
-					# keepalived is always mandatory
+					# The backend writes a daemon config only when procd has to
+					# run that daemon
+					[ -f "$OWSYNC_CONF" ] && owsync_required=1
+					[ -f "$LEASE_SYNC_CONF" ] && lease_sync_required=1
+
 					if ! pgrep "keepalived" >/dev/null 2>&1; then
 						services_ok=0
 					fi
-
-					# owsync is only required if sync_method='owsync'
-					sync_method=$(uci -q get ha-cluster.config.sync_method)
-					if [ "$sync_method" = "owsync" ]; then
-						if ! pgrep "owsync" >/dev/null 2>&1; then
-							services_ok=0
-						fi
+					if [ "$owsync_required" -eq 1 ] && ! pgrep "owsync" >/dev/null 2>&1; then
+						services_ok=0
 					fi
-
-					# lease-sync is required if lease_sync='1'
-					if [ "$(uci -q get ha-cluster.config.lease_sync)" = "1" ]; then
-						if ! pgrep "lease-sync" >/dev/null 2>&1; then
-							services_ok=0
-						fi
+					if [ "$lease_sync_required" -eq 1 ] && ! pgrep "lease-sync" >/dev/null 2>&1; then
+						services_ok=0
 					fi
-
-
 				fi
 
 				# Get sync statistics (MVP: timestamps only)
 				config_last_sync=0
 				lease_last_sync=0
 
-				# Check owsync database for last sync timestamp
 				# BusyBox doesn't support stat -c, use date -r instead
-				if [ -f /etc/owsync/owsync.db ]; then
-					config_last_sync=$(date -r /etc/owsync/owsync.db +%s 2>/dev/null || echo 0)
+				owsync_db=""
+				[ -f "$OWSYNC_CONF" ] && owsync_db=$(sed -n 's/^database=//p' "$OWSYNC_CONF" | tail -n 1)
+				if [ -n "$owsync_db" ] && [ -f "$owsync_db" ]; then
+					config_last_sync=$(date -r "$owsync_db" +%s 2>/dev/null || echo 0)
 				fi
 
 				# Check dnsmasq lease file for last sync timestamp
@@ -236,11 +235,6 @@ case "$1" in
 
 
 				# Add service status for frontend display with required flag
-				# Determine which services are required based on config
-				sync_method=$(uci -q get ha-cluster.config.sync_method)
-				lease_sync_required=0
-				[ "$(uci -q get ha-cluster.config.lease_sync)" = "1" ] && lease_sync_required=1
-
 				json_add_object services
 
 				# keepalived - always required
@@ -265,9 +259,8 @@ case "$1" in
 				fi
 				json_close_object
 
-				# owsync - required only if sync_method='owsync'
 				json_add_object "owsync"
-				if [ "$sync_method" = "owsync" ]; then
+				if [ "$owsync_required" -eq 1 ]; then
 					json_add_boolean required 1
 				else
 					json_add_boolean required 0
@@ -291,7 +284,6 @@ case "$1" in
 				fi
 				json_close_object
 
-				# lease-sync - required if any service has sync_leases='1'
 				json_add_object "lease-sync"
 				if [ "$lease_sync_required" -eq 1 ]; then
 					json_add_boolean required 1
