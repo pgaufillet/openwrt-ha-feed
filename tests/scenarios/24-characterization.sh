@@ -1,5 +1,5 @@
 #!/bin/sh
-# 24-characterization.sh - Test T24: Backend, rpcd and Migration Characterization
+# 24-characterization.sh - Test T24: Backend, rpcd, ACL and Migration Characterization
 #
 # Freezes the observable behaviour of the ha-cluster backend and of the
 # rpcd status method over a matrix of configurations, so that any change
@@ -10,6 +10,8 @@
 #     standalone-service state
 #   - rpcd: "status" JSON for a given config, set of running daemons,
 #     reachable peers and keepalived dump
+#   - acl: what a LuCI user holding only the luci-base and app ACL groups
+#     may call, through a real rpcd session
 #   - migration: /etc/config/ha-cluster before and after the uci-defaults
 #     migration, and after a second run
 #
@@ -45,7 +47,7 @@ NODE_IMAGE="${NODE_IMAGE:-ha-cluster-node:latest}"
 # Helpers
 # ============================================
 
-# Usage: run_case backend|rpcd|migration <case file name>
+# Usage: run_case backend|rpcd|acl|migration <case file name>
 run_case() {
     local mode="$1"
     local case_name="$2"
@@ -57,6 +59,7 @@ run_case() {
         -v "$FEED_DIR/ha-cluster/files/ha-cluster.config:/shipped/ha-cluster:ro" \
         -v "$FEED_DIR/ha-cluster/files/ha-cluster.uci-defaults:/char-migrate:ro" \
         -v "$FEED_DIR/luci-app-ha-cluster/root/usr/libexec/rpcd/ha-cluster:/usr/libexec/rpcd/ha-cluster:ro" \
+        -v "$FEED_DIR/luci-app-ha-cluster/root/usr/share/rpcd/acl.d/luci-app-ha-cluster.json:/usr/share/rpcd/acl.d/luci-app-ha-cluster.json:ro" \
         -v "$CHAR_DIR:/char:ro" \
         "$NODE_IMAGE" /char/harness.sh "$mode" "/char/$mode/cases/$case_name"
 }
@@ -92,7 +95,7 @@ test_prerequisites() {
     pass "Node image and python3 available"
 }
 
-# Usage: test_matrix backend|rpcd|migration
+# Usage: test_matrix backend|rpcd|acl|migration
 test_matrix() {
     local mode="$1"
     local rc=0
@@ -154,8 +157,8 @@ test_matrix() {
 # ============================================
 
 main() {
-    header "T24: Backend, rpcd and Migration Characterization"
-    info "Compares backend, rpcd and migration behaviour with the expected outputs"
+    header "T24: Backend, rpcd, ACL and Migration Characterization"
+    info "Compares backend, rpcd, ACL and migration behaviour with the expected outputs"
 
     local result=0
 
@@ -163,6 +166,7 @@ main() {
 
     test_matrix backend || result=1
     test_matrix rpcd || result=1
+    test_matrix acl || result=1
     test_matrix migration || result=1
 
     return $result

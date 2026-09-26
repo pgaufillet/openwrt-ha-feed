@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs one characterization case in a throwaway node container and prints
 # its observable result.
-# Usage: harness.sh backend|rpcd|migration <case file>
+# Usage: harness.sh backend|rpcd|acl|migration <case file>
 #
 # A case file is sourced with errexit set. It may change UCI, remove or
 # create files, set the FAKE_* variables read by the stubs, and set
@@ -14,6 +14,9 @@
 #
 # Migration cases write /etc/config/ha-cluster verbatim; only the
 # uci-defaults migration runs, twice.
+#
+# ACL cases define a checks function calling access and file_call, run
+# against a real ubusd/rpcd with a restricted login.
 
 exec 2>&1
 
@@ -148,6 +151,53 @@ case "$mode" in
 		out="$(/usr/libexec/rpcd/ha-cluster call status)"
 		echo "== status rc=$?"
 		echo "$out"
+		;;
+	acl)
+		# A login holding only luci-base and the app's ACL groups, as
+		# granted to a non-root LuCI user
+		cat >> /etc/config/rpcd <<-EOF
+
+			config login
+				option username 'char'
+				option password '$(/usr/sbin/uhttpd -m char)'
+				list read 'luci-base*'
+				list read 'luci-app-ha-cluster'
+				list write 'luci-base*'
+				list write 'luci-app-ha-cluster'
+		EOF
+		/sbin/ubusd &
+		while [ ! -S /var/run/ubus/ubus.sock ]; do sleep 1; done
+		/sbin/rpcd &
+		/bin/ubus -t 10 wait_for session file
+		sid="$(/bin/ubus call session login '{"username":"char","password":"char"}' |
+			sed -n 's/.*"ubus_rpc_session": "\([0-9a-f]*\)".*/\1/p')"
+		if [ -z "$sid" ]; then
+			echo "login failed"
+			exit 1
+		fi
+
+		# Usage: access <scope> <object> <function>
+		# Asks the session: uhttpd checks the ubus scope before any call
+		access() {
+			echo "access $1 $2 $3: $(/bin/ubus call session access \
+				"{\"ubus_rpc_session\":\"$sid\",\"scope\":\"$1\",\"object\":\"$2\",\"function\":\"$3\"}" |
+				sed -n 's/.*"access": \([a-z]*\).*/\1/p')"
+		}
+
+		# Usage: file_call <method> <path> [<extra JSON members>]
+		# The file scope is enforced by rpcd on the call itself
+		file_call() {
+			local err
+
+			if err="$(/bin/ubus call file "$1" \
+				"{\"path\":\"$2\",\"ubus_rpc_session\":\"$sid\"${3:+,$3}}" 2>&1 >/dev/null)"; then
+				echo "file $1 $2: ok"
+			else
+				echo "file $1 $2: ${err##*(}" | sed 's/)$//'
+			fi
+		}
+
+		checks
 		;;
 	migration)
 		config=/etc/config/ha-cluster

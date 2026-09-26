@@ -404,9 +404,9 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 
 | ID | Scenario | Validates |
 |----|----------|-----------|
-| T24 | Characterization | Backend, rpcd `status` and UCI migration output unchanged over a matrix of configurations |
+| T24 | Characterization | Backend, rpcd `status`, LuCI ACL and UCI migration output unchanged over a matrix of configurations |
 
-T24 runs each case of `characterization/{backend,rpcd,migration}/cases/` in a
+T24 runs each case of `characterization/{backend,rpcd,acl,migration}/cases/` in a
 throwaway `ha-cluster-node` container (no network), against the
 working-tree `ha-cluster.sh`, init script, migration and rpcd handler, with
 `logger`, `pgrep`, `ubus` and `ping` stubbed. It compares the result
@@ -427,6 +427,14 @@ rpcd cases describe the configuration before a package upgrade: the
 The `migration` cases write `/etc/config/ha-cluster` verbatim (old
 spellings, comments, anonymous sections) and record the file after the
 migration and after a second run, which must leave it unchanged.
+
+The `acl` cases start the real `ubusd` and `rpcd` with the working-tree
+LuCI ACL and log in as a user holding only the `luci-base*` and
+`luci-app-ha-cluster` groups (root holds every group, so the LuCI tests
+cannot see a missing grant). A case defines a `checks` function:
+`access <scope> <object> <function>` asks the session (the ubus scope is
+enforced by uhttpd before any call), `file_call <method> <path>` makes
+the call itself (the file scope is enforced by rpcd).
 
 An intended behaviour change is recorded by regenerating the expected
 files and committing their diff with the change:

@@ -1,0 +1,15 @@
+access ubus ha-cluster status: true
+access ubus ha-cluster generate_key: true
+access ubus ha-cluster apply: true
+access ubus network.interface dump: true
+access ubus file list: true
+access ubus file read: false
+access ubus file stat: false
+access ubus file write: false
+access uci ha-cluster read: true
+access uci ha-cluster write: true
+file stat /usr/bin/owsync: ok
+file stat /usr/sbin/lease-sync: ok
+file list /etc/hotplug.d/keepalived: ok
+file read /etc/hotplug.d/keepalived/01-ubus: ok
+file write /etc/hotplug.d/keepalived/99-char: ok
