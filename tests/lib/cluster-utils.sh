@@ -1153,10 +1153,10 @@ dhcp_request() {
     exec_client "$client" rm -f "/var/lib/dhcpcd/${interface}.lease" /var/lib/dhcpcd/duid 2>/dev/null || true
     sleep 1
 
-    # Request new lease with short timeout
+    # Request new lease; the timeout covers the server ping check and ARP probing
     # Use -4 for IPv4 only (avoids IPv6 read-only filesystem errors in containers)
     # Use -1 for one attempt, -t for timeout
-    exec_client "$client" dhcpcd -4 -1 -t 10 "$interface" 2>/dev/null
+    exec_client "$client" dhcpcd -4 -1 -t 20 "$interface" 2>/dev/null
 
     # Wait for IP to be assigned
     sleep 2
