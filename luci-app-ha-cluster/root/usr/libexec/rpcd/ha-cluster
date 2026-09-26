@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 
+. /lib/functions.sh
 . /usr/share/libubox/jshn.sh
 
 # Written by the ha-cluster backend
@@ -57,7 +58,7 @@ case "$1" in
 				lease_sync_required=0
 
 				# Check if ha-cluster is enabled
-				ha_enabled=$(uci -q get ha-cluster.config.enabled)
+				ha_enabled=$(get_bool "$(uci -q get ha-cluster.config.enabled)" 0)
 
 				if [ "$ha_enabled" != "1" ]; then
 					cluster_state="STOPPED"

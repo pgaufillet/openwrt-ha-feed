@@ -1,7 +1,10 @@
 == status rc=0
 {
-    "role": "UNKNOWN",
-    "instances": {},
+    "role": "MASTER",
+    "instances": {
+        "1": "MASTER",
+        "2": "MASTER"
+    },
     "peers": [
         {
             "name": "node2",
@@ -10,7 +13,7 @@
             "last_seen": "Just now"
         }
     ],
-    "state": "STOPPED",
+    "state": "HEALTHY",
     "services": {
         "keepalived": {
             "required": true,
@@ -19,13 +22,13 @@
             "uptime": 0
         },
         "owsync": {
-            "required": false,
+            "required": true,
             "running": true,
             "pid": 99999,
             "uptime": 0
         },
         "lease-sync": {
-            "required": false,
+            "required": true,
             "running": true,
             "pid": 99999,
             "uptime": 0
