@@ -6,6 +6,7 @@
 				"/etc/hotplug.d/keepalived/*": [ "list", "read" ]
 			},
 			"ubus": {
+				"file": [ "list", "read", "stat" ],
 				"ha-cluster": [ "status", "generate_key", "get_source_for_peer" ],
 				"keepalived": [ "dump" ],
 				"service": [ "list" ]
@@ -17,6 +18,7 @@
 				"/etc/hotplug.d/keepalived/*": [ "write" ]
 			},
 			"ubus": {
+				"file": [ "write" ],
 				"ha-cluster": [ "apply" ]
 			},
 			"uci": [ "ha-cluster" ]

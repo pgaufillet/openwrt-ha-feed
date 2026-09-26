@@ -3,9 +3,9 @@ access ubus ha-cluster generate_key: true
 access ubus ha-cluster apply: true
 access ubus network.interface dump: true
 access ubus file list: true
-access ubus file read: false
-access ubus file stat: false
-access ubus file write: false
+access ubus file read: true
+access ubus file stat: true
+access ubus file write: true
 access uci ha-cluster read: true
 access uci ha-cluster write: true
 file stat /usr/bin/owsync: ok
