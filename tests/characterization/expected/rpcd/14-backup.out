@@ -2,8 +2,8 @@
 {
     "role": "BACKUP",
     "instances": {
-        "1": "BACKUP",
-        "2": "BACKUP"
+        "main": "BACKUP",
+        "main_v6": "BACKUP"
     },
     "peers": [
         {

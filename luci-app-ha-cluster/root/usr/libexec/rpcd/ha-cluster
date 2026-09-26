@@ -77,32 +77,25 @@ case "$1" in
 
 							for instance in $instances; do
 								json_select "$instance" || continue
-
-								inst_role="UNKNOWN"
-								json_get_var vrrp_state state 2>/dev/null
-								if [ -n "$vrrp_state" ]; then
-									case "$vrrp_state" in
-										[Mm][Aa][Ss][Tt][Ee][Rr]) inst_role="MASTER" ;;
-										[Bb][Aa][Cc][Kk][Uu][Pp]) inst_role="BACKUP" ;;
-										[Ff][Aa][Uu][Ll][Tt]) inst_role="FAULT" ;;
-									esac
-								else
-									# Fallback: infer state from statistics
-									json_select stats 2>/dev/null
-									if [ $? -eq 0 ]; then
-										json_get_var become_master become_master
-										json_get_var release_master release_master
-										if [ "$become_master" -gt "$release_master" ]; then
-											inst_role="MASTER"
-										else
-											inst_role="BACKUP"
-										fi
-										json_select ..
-									fi
+								inst_name=""
+								vrrp_state=""
+								if json_select data 2>/dev/null; then
+									json_get_var inst_name iname
+									json_get_var vrrp_state state
+									json_select ..
 								fi
-
-								echo "$instance:$inst_role"
 								json_select ..
+								[ -n "$inst_name" ] || continue
+
+								# VRRP_STATE_* values from keepalived's vrrp.h
+								case "$vrrp_state" in
+									1) inst_role="BACKUP" ;;
+									2) inst_role="MASTER" ;;
+									3) inst_role="FAULT" ;;
+									*) inst_role="UNKNOWN" ;;
+								esac
+
+								echo "$inst_name:$inst_role"
 							done
 						)
 

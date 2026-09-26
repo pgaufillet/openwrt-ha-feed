@@ -2,8 +2,8 @@
 {
     "role": "MASTER",
     "instances": {
-        "1": "MASTER",
-        "2": "MASTER"
+        "main": "MASTER",
+        "main_v6": "MASTER"
     },
     "peers": [],
     "state": "HEALTHY",

@@ -2,8 +2,8 @@
 {
     "role": "MIXED",
     "instances": {
-        "1": "MASTER",
-        "2": "BACKUP"
+        "main": "MASTER",
+        "main_v6": "BACKUP"
     },
     "peers": [
         {
