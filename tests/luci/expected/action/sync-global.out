@@ -1,0 +1,3 @@
+staged:
+set advanced sync_interval 60
+set advanced owsync_log_level 3

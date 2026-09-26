@@ -1,0 +1,6 @@
+staged:
+set config node_priority 100
+set config vrrp_transport multicast
+set config sync_method owsync
+set dhcp sync_leases 1
+set dhcp enabled 1

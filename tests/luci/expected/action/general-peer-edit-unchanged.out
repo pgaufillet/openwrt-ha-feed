@@ -1,0 +1,3 @@
+staged:
+set peer3 source_address 172.30.0.10
+set peer3 sync_enabled 1

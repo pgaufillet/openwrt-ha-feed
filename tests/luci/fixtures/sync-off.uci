@@ -1,0 +1,32 @@
+config global 'config'
+	option enabled '1'
+	option sync_method 'none'
+	option encryption_key ''
+
+config vrrp_instance 'main'
+	option vrid '64'
+	option interface 'lan'
+	option nopreempt '1'
+
+config vip
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.50.254'
+	option netmask '255.255.255.0'
+
+config peer
+	option name 'vrrp-box'
+	option address '192.168.50.30'
+	option source_address '192.168.50.10'
+	option sync_enabled '0'
+
+config service 'dhcp'
+	option enabled '0'
+	option sync_leases '0'
+	list config_files 'dhcp'
+
+config service 'openvpn'
+	list config_files 'openvpn'
+
+config advanced 'advanced'
+	option enable_notifications '0'

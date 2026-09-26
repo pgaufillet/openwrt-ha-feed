@@ -1,0 +1,7 @@
+staged:
+remove <anon1> file
+list-add <anon1> file network
+list-add <anon1> file system
+list-add <anon1> file owsync
+list-add <anon1> file ha-cluster
+list-add <anon1> file /etc/dropbear/*.key

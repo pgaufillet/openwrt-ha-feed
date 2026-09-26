@@ -1,0 +1,16 @@
+staged:
+add <anon1> vip
+set <anon1> interface lan
+set <anon1> vrrp_instance main
+set <anon1> address 192.168.50.254
+set <anon1> netmask 255.255.255.0
+set <anon1> enabled 1
+set main vrrp_instance
+set main vrid 64
+set main interface lan
+set main priority 100
+set main nopreempt 1
+set main advert_int 1
+set config node_priority 100
+set config vrrp_transport multicast
+set config sync_method owsync

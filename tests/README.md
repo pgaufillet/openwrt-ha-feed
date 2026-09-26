@@ -104,6 +104,11 @@ tests/
 │   ├── 19-ipv6-stress.sh           # T19: IPv6 stress test (1000+ leases)
 │   └── 20-no-lease-sync.sh        # T20: Operation without lease-sync
 │
+├── luci/
+│   ├── luci-test.js                # T25 Playwright driver
+│   ├── fixtures/                   # UCI configs rendered by T25
+│   └── expected/                   # T25 expected outputs
+│
 ├── lib/
 │   ├── common.sh                   # Core test utilities
 │   ├── assertions.sh               # Test assertions
@@ -118,7 +123,7 @@ tests/
 ├── images/                         # OpenWrt rootfs (gitignored)
 ├── data/                           # Runtime state (gitignored)
 ├── logs/                           # Test logs (gitignored)
-├── package.json                    # Node.js deps (Playwright for screenshots)
+├── package.json                    # Node.js deps (Playwright for T25 and screenshots)
 └── node_modules/                   # npm dependencies (gitignored)
 ```
 
@@ -427,6 +432,44 @@ An intended behaviour change is recorded by regenerating the expected
 files and committing their diff with the change:
 ```bash
 CHAR_UPDATE=1 sh scenarios/24-characterization.sh
+```
+
+### LuCI Characterization (T25)
+
+| ID | Scenario | Validates |
+|----|----------|-----------|
+| T25 | LuCI Characterization | LuCI pages, staged UCI changes and layout unchanged; Status page matches rpcd; no console errors |
+
+T25 drives the LuCI pages of `ha-node1` with Playwright
+(`luci/luci-test.js`) and compares with `luci/expected/`:
+
+- `snapshot`: every page and edit modal rendered for each
+  `luci/fixtures/*.uci` config. Fixtures use the old option names; the
+  working-tree `uci-defaults` migration runs on them first.
+- `missing`: pages rendered with the `lease-sync` or `owsync` binary
+  removed.
+- `action`: UCI changes staged by scripted edits. Pages are saved, never
+  applied, so the running daemons are untouched.
+- `layout`: overflow, overlap, alignment (labels, fields, help text,
+  table columns, row actions, headings), contrast of colours set by the
+  app, unlabeled cells in narrow layout, broken images, stored values
+  shown altered; at 1280 and 375 px, light and dark.
+
+It also checks that the Status page shows what `ubus call ha-cluster
+status` returns and that no page logs a console error. The node config is
+restored at the end. Screenshots of every page and modal are left in
+`logs/luci/screenshots` for review.
+
+The host needs Node.js and Playwright:
+```bash
+npm ci && npx playwright install chromium
+```
+
+`LUCI_MIGRATION` overrides the migration script; empty skips it (to run
+against a node image older than the migration). Expected files are
+regenerated as for T24:
+```bash
+CHAR_UPDATE=1 sh scenarios/25-luci.sh
 ```
 
 ## Usage

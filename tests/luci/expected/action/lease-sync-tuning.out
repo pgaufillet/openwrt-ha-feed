@@ -1,0 +1,4 @@
+staged:
+set advanced lease_sync_port 5400
+set advanced lease_sync_persist_interval 600
+set advanced lease_sync_log_level 1

@@ -1,0 +1,168 @@
+==== status
+h2: High Availability Status
+Real-time status of the HA cluster. Updates every 5 seconds.
+h3: Cluster Status
+| Cluster Overview
+| Cluster State | STOPPED
+| Node Role | UNKNOWN
+| Last Synchronization
+| Config Sync | <time>
+| Lease Sync | <time>
+h3: Service Status
+| Service | Status | PID | Uptime
+| keepalived | Running | <pid> | <uptime>
+| owsync | Running | <pid> | <uptime>
+| lease-sync | Running | <pid> | <uptime>
+h3: Peer Status
+<alert> No peers configured
+==== simple
+h2: High Availability - General
+Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.
+h3: Cluster Configuration
+config.enabled [CBI.FlagValue] Enable HA Cluster: [ ]
+  help: Enable high availability clustering on this router
+config.node_priority [CBI.Value] Priority: value=100 (placeholder "100")
+  help: VRRP priority (1-255). Higher priority becomes MASTER.
+config.vrrp_transport [CBI.ListValue] VRRP Transport: select=multicast {multicast,unicast}
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network.
+h3: Peer Routers
+| Peer | 
+| This section contains no values yet
+<button> Add
+h3: Virtual IP Addresses
+All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+| Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
+| <anon>: <img> lan | 64 | 192.168.1.254 | none | Yes | [☰][Edit][Delete]
+<button> Add VIP...
+h3: Configuration Synchronization
+Select which /etc/config files to synchronize and how synchronization is performed.
+config.encryption_key [CBI.Value] Encryption Key: password= (placeholder "Click "Generate New Key" button below to create a secure random key") button "∗"
+  help: 256-bit AES encryption key (64 hexadecimal characters) for configuration sync (owsync) and DHCP lease sync (lease-sync). Must be identical on all cluster nodes. Leave empty to disable encryption.
+config._generate_key [CBI.ButtonValue] Generate New Key: button "Generate New Key"
+config._dhcp_leases [CBI.FlagValue] Enable Real-time DHCP Lease Sync: [x]
+  help: Synchronize DHCP leases in real-time using the lease-sync daemon for seamless client failover
+config.sync_method [CBI.ListValue] Sync Method: select=owsync {owsync,none}
+  help: owsync: real-time file synchronization. none: disable file synchronization.
+config._dhcp_config [CBI.FlagValue] Sync DHCP Configuration: [x]
+  help: Synchronize /etc/config/dhcp (address pools, static leases, DNS settings)
+config._firewall_config [CBI.FlagValue] Sync Firewall Rules: [ ]
+  help: Synchronize /etc/config/firewall (port forwarding, rules, zones). Review rules before enabling.
+==== simple modal <anon>
+h4: High Availability - General
+<anon>.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+<anon>.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.1.254 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+<anon>.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+<anon>.address6 [CBI.Value] Virtual IP Address (IPv6): value= (placeholder "fd00::1")
+  help: Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+<anon>.enabled [CBI.FlagValue] Enable: [x]
+<button> Dismiss
+<button> Save
+==== keepalived-advanced
+h2: High Availability - Advanced VRRP
+Advanced VRRP instance tuning. VIPs and instance assignment are in General.
+h3: Global Settings
+Keepalived global options and email notifications.
+advanced.max_auto_priority [CBI.Value] Max Auto Priority: value=0 (placeholder "0")
+  help: Set to 0 to disable auto-priority (recommended).
+advanced.log_level [CBI.ListValue] HA Cluster Log Level: select=2 {0,1,2,3}
+  help: Verbosity of ha-cluster shell scripts logging.
+advanced.enable_notifications [CBI.FlagValue] Enable Email Notifications: [ ]
+  help: Send email on state changes. Requires SMTP server.
+h3: VRRP Instances
+The General page creates a single "main" instance for atomic failover of all VIPs. Add extra instances here for independent failover groups.
+| Name | VRID | Interface | VIPs | 
+| main: main | 64 | lan | 1 | [☰][Edit][Delete]
+<input> 
+<button> Add
+h3: Health Checks (VRRP Scripts)
+Custom checks referenced by track_script. Examples: ping gateway, check DNS, verify VPN.
+| Name | Script | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: State Change Hooks
+Shell scripts executed on VRRP state changes. Click Edit to modify. Environment: $ACTION, $NAME, $TYPE.
+| Name | 
+| 01-ubus | [Edit]
+| 01-user | [Edit]
+<input> e.g., 60-vpn-failover
+<button> Add
+==== keepalived-advanced modal main
+[tab General]
+h4: High Availability - Advanced VRRP - main
+main.vrid [CBI.Value] VRID: value=64
+  help: Virtual Router ID (1-127). Must match on all cluster nodes. 128-255 reserved for auto-generated IPv6 instances.
+main.interface [CBI.ListValue] Primary Interface: select=lan {backend,lan}
+  help: Interface used for VRRP advertisements.
+<button> Dismiss
+<button> Save
+[tab Timing]
+h4: High Availability - Advanced VRRP - main
+main.advert_int [CBI.Value] Advertisement Interval: value=1 (placeholder "1.0")
+  help: VRRP advertisement frequency (seconds). Lower = faster failover. Default: 1.
+main.priority [CBI.Value] Priority: value=100 (placeholder "Use global priority")
+  help: Override global priority for this instance. Leave empty for global priority.
+main.nopreempt [CBI.FlagValue] Keep Current MASTER (disable preemption): [x]
+  help: Current MASTER stays MASTER even if higher-priority router returns.
+main.preempt_delay [CBI.Value] Preempt Delay: value= (placeholder "30")
+  help: Seconds before higher-priority router takes over. Prevents flapping. Recommended: 30-60.
+main.garp_master_delay [CBI.Value] GARP Delay: value= (placeholder "5")
+  help: Seconds before sending Gratuitous ARP after becoming MASTER. Helps with slow switches. Default: 5.
+<button> Dismiss
+<button> Save
+[tab Authentication]
+h4: High Availability - Advanced VRRP - main
+main.auth_type [CBI.ListValue] Authentication Type: select=none {none,pass,ah}
+  help: PASS: basic (max 8 chars, cleartext). AH: cryptographic (requires kmod-ipsec).
+<button> Dismiss
+<button> Save
+[tab Tracking]
+h4: High Availability - Advanced VRRP - main
+main.track_interface [CBI.DynamicList] Track Interfaces: 
+  help: Failover when tracked interface goes DOWN. Common: track WAN for internet failover.
+main.track_script [CBI.DynamicList] Track Scripts: 
+  help: Failover when health check fails. Define scripts in Health Checks section below.
+<button> Dismiss
+<button> Save
+[tab Unicast]
+h4: High Availability - Advanced VRRP - main
+main.unicast_src_ip [CBI.Value] Unicast Source IP: value= (placeholder "e.g., 192.168.1.1")
+  help: This router's IP for unicast VRRP. Leave empty for multicast (default).
+main.unicast_peer [CBI.DynamicList] Unicast Peer IPs: 
+  help: Peer router IPs. Required when using unicast mode. Both src_ip and peer must be set.
+<button> Dismiss
+<button> Save
+==== owsync-advanced
+h2: High Availability - Advanced Config Sync
+Custom sync groups for services beyond General settings (e.g., VPN, mwan3).
+h3: Global Settings
+owsync global options.
+advanced.sync_interval [CBI.Value] Poll Interval (seconds): value=30 (placeholder "30")
+  help: Fallback scan interval. Changes are also detected via inotify events.
+advanced.owsync_log_level [CBI.ListValue] Log Level: select=2 {0,1,2,3}
+  help: Verbosity of owsync daemon logging.
+h3: Additional Sync Groups
+Click Edit to configure files.
+| Name | Status | Files | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: Exclusions
+Files never synced; exclusions take precedence over sync groups. Default: network, system, owsync, ha-cluster, wireless.
+<anon>.file [CBI.ChipListValue] Excluded Files: chip=network chip=system chip=owsync chip=ha-cluster chip=wireless value= (placeholder "/etc/dropbear/*.key") button "Add"
+==== lease-sync-advanced
+h2: High Availability - Advanced Lease Sync
+Tuning for high-churn environments, unreliable networks, or troubleshooting.
+h3: Lease-Sync Tuning
+Default values work for most deployments.
+advanced.lease_sync_port [CBI.Value] Sync Port: value=5378 (placeholder "5378")
+  help: UDP port for lease sync.
+advanced.lease_sync_interval [CBI.Value] Sync Interval: value=30 (placeholder "30")
+  help: Seconds between full sync requests. Safety net for missed updates.
+advanced.lease_sync_peer_timeout [CBI.Value] Peer Timeout: value=120 (placeholder "120")
+  help: Seconds without heartbeat before peer is offline. Should be 4x sync_interval.
+advanced.lease_sync_persist_interval [CBI.Value] Persist Interval: value=60 (placeholder "60")
+  help: Seconds between disk writes. Increase to 300 for flash storage.
+advanced.lease_sync_log_level [CBI.ListValue] Log Level: select=2 {0,1,2,3}
+  help: Use Debug (3) for troubleshooting sync issues.

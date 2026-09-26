@@ -1,0 +1,5 @@
+staged:
+set main advert_int 2
+set main nopreempt 0
+set main auth_type pass
+set main auth_pass abcd1234

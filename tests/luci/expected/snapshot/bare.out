@@ -1,0 +1,95 @@
+==== status
+h2: High Availability Status
+Real-time status of the HA cluster. Updates every 5 seconds.
+h3: Cluster Status
+| Cluster Overview
+| Cluster State | STOPPED
+| Node Role | UNKNOWN
+| Last Synchronization
+| Config Sync | <time>
+| Lease Sync | <time>
+h3: Service Status
+| Service | Status | PID | Uptime
+| keepalived | Running | <pid> | <uptime>
+| owsync | Running | <pid> | <uptime>
+| lease-sync | Running | <pid> | <uptime>
+h3: Peer Status
+<alert> No peers configured
+==== simple
+h2: High Availability - General
+Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.
+h3: Cluster Configuration
+config.enabled [CBI.FlagValue] Enable HA Cluster: [ ]
+  help: Enable high availability clustering on this router
+config.node_priority [CBI.Value] Priority: value=100 (placeholder "100")
+  help: VRRP priority (1-255). Higher priority becomes MASTER.
+config.vrrp_transport [CBI.ListValue] VRRP Transport: select=multicast {multicast,unicast}
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network.
+h3: Peer Routers
+| Peer | 
+| This section contains no values yet
+<button> Add
+h3: Virtual IP Addresses
+All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+| Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
+| This section contains no values yet
+<button> Add VIP...
+h3: Configuration Synchronization
+Select which /etc/config files to synchronize and how synchronization is performed.
+config.encryption_key [CBI.Value] Encryption Key: password= (placeholder "Click "Generate New Key" button below to create a secure random key") button "∗"
+  help: 256-bit AES encryption key (64 hexadecimal characters) for configuration sync (owsync) and DHCP lease sync (lease-sync). Must be identical on all cluster nodes. Leave empty to disable encryption.
+config._generate_key [CBI.ButtonValue] Generate New Key: button "Generate New Key"
+config._dhcp_leases [CBI.FlagValue] Enable Real-time DHCP Lease Sync: [x]
+  help: Synchronize DHCP leases in real-time using the lease-sync daemon for seamless client failover
+config.sync_method [CBI.ListValue] Sync Method: select=owsync {owsync,none}
+  help: owsync: real-time file synchronization. none: disable file synchronization.
+config._dhcp_config [CBI.FlagValue] Sync DHCP Configuration: [x]
+  help: Synchronize /etc/config/dhcp (address pools, static leases, DNS settings)
+config._firewall_config [CBI.FlagValue] Sync Firewall Rules: [ ]
+  help: Synchronize /etc/config/firewall (port forwarding, rules, zones). Review rules before enabling.
+==== keepalived-advanced
+h2: High Availability - Advanced VRRP
+Advanced VRRP instance tuning. VIPs and instance assignment are in General.
+h3: Global Settings
+Keepalived global options and email notifications.
+<em> This section contains no values yet
+h3: VRRP Instances
+The General page creates a single "main" instance for atomic failover of all VIPs. Add extra instances here for independent failover groups.
+| Name | VRID | Interface | VIPs | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: Health Checks (VRRP Scripts)
+Custom checks referenced by track_script. Examples: ping gateway, check DNS, verify VPN.
+| Name | Script | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: State Change Hooks
+Shell scripts executed on VRRP state changes. Click Edit to modify. Environment: $ACTION, $NAME, $TYPE.
+| Name | 
+| 01-ubus | [Edit]
+| 01-user | [Edit]
+<input> e.g., 60-vpn-failover
+<button> Add
+==== owsync-advanced
+h2: High Availability - Advanced Config Sync
+Custom sync groups for services beyond General settings (e.g., VPN, mwan3).
+h3: Global Settings
+owsync global options.
+<em> This section contains no values yet
+h3: Additional Sync Groups
+Click Edit to configure files.
+| Name | Status | Files | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: Exclusions
+Files never synced; exclusions take precedence over sync groups. Default: network, system, owsync, ha-cluster, wireless.
+<em> This section contains no values yet
+==== lease-sync-advanced
+h2: High Availability - Advanced Lease Sync
+Tuning for high-churn environments, unreliable networks, or troubleshooting.
+h3: Lease-Sync Tuning
+Default values work for most deployments.
+<em> This section contains no values yet

@@ -1,0 +1,4 @@
+staged:
+set config enabled 0
+set config node_priority 120
+set config vrrp_transport multicast

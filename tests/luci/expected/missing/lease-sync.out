@@ -1,0 +1,157 @@
+==== status
+h2: High Availability Status
+Real-time status of the HA cluster. Updates every 5 seconds.
+h3: Cluster Status
+| Cluster Overview
+| Cluster State | DEGRADED
+| Node Role | MASTER
+| Instance: 1 | MASTER
+| Instance: 2 | MASTER
+| Last Synchronization
+| Config Sync | <time>
+h3: Service Status
+| Service | Status | PID | Uptime
+| keepalived | Running | <pid> | <uptime>
+| owsync | Running | <pid> | <uptime>
+h3: Peer Status
+| Peer Name | Address | State | Last Seen
+| ha-node2 | 172.30.0.11 | Online | <time>
+| edge-router | fd00:172:30::20 | Offline | Unreachable
+| legacy | 172.30.0.12 | Offline | Unreachable
+==== simple
+h2: High Availability - General
+Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.
+h3: Cluster Configuration
+config.enabled [CBI.FlagValue] Enable HA Cluster: [x]
+  help: Enable high availability clustering on this router
+config.node_priority [CBI.Value] Priority: value=150 (placeholder "100")
+  help: VRRP priority (1-255). Higher priority becomes MASTER.
+config.vrrp_transport [CBI.ListValue] VRRP Transport: select=unicast {multicast,unicast}
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network.
+h3: Peer Routers
+| Peer | 
+| peer1: ha-node2 (172.30.0.11) | [☰][Edit][Delete]
+| peer2: edge-router (fd00:172:30::20) | [☰][Edit][Delete]
+| peer3: legacy (172.30.0.12) | [☰][Edit][Delete]
+<button> Add
+h3: Virtual IP Addresses
+All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+| Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
+| lan: <img> lan | 51 (IPv6: 179) | 192.168.50.254 | fd00:192:168:50::254 | Yes | [☰][Edit][Delete]
+| lan_old: <img> lan | 51 | 192.168.50.253 | none | No | [☰][Edit][Delete]
+| vpn6: <img> backend | 52 (IPv6: 180) | none | fd00:172:30::254 | Yes | [☰][Edit][Delete]
+<button> Add VIP...
+h3: Configuration Synchronization
+Select which /etc/config files to synchronize and how synchronization is performed.
+config.encryption_key [CBI.Value] Encryption Key: password=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef (placeholder "Click "Generate New Key" button below to create a secure random key") button "∗"
+  help: 256-bit AES encryption key (64 hexadecimal characters) for configuration sync (owsync) and DHCP lease sync (lease-sync). Must be identical on all cluster nodes. Leave empty to disable encryption.
+config._generate_key [CBI.ButtonValue] Generate New Key: button "Generate New Key"
+config._dhcp_leases [CBI.DummyValue] Real-time DHCP Lease Sync: text "Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization. Go to Software page →"
+config.sync_method [CBI.ListValue] Sync Method: select=owsync {owsync,none}
+  help: owsync: real-time file synchronization. none: disable file synchronization.
+config._dhcp_config [CBI.FlagValue] Sync DHCP Configuration: [x]
+  help: Synchronize /etc/config/dhcp (address pools, static leases, DNS settings)
+config._firewall_config [CBI.FlagValue] Sync Firewall Rules: [x]
+  help: Synchronize /etc/config/firewall (port forwarding, rules, zones). Review rules before enabling.
+==== simple modal peer1
+h4: High Availability - General
+peer1.name [CBI.Value] Peer Name: value=ha-node2 (placeholder "router2")
+peer1.address [CBI.Value] Peer IP Address: value=172.30.0.11 (placeholder "192.168.1.2")
+peer1.source_address [CBI.ListValue] Source Address: select=172.30.0.10 {172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer1.sync_enabled [CBI.FlagValue] Enable Synchronization: [x]
+  help: When disabled, this peer participates in VRRP failover but is excluded from config and lease sync. Use for non-OpenWrt peers.
+<button> Dismiss
+<button> Save
+==== simple modal peer2
+h4: High Availability - General
+peer2.name [CBI.Value] Peer Name: value=edge-router (placeholder "router2")
+peer2.address [CBI.Value] Peer IP Address: value=fd00:172:30::20 (placeholder "192.168.1.2")
+peer2.source_address [CBI.ListValue] Source Address: select=fd00:172:30::10 {172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer2.sync_enabled [CBI.FlagValue] Enable Synchronization: [ ]
+  help: When disabled, this peer participates in VRRP failover but is excluded from config and lease sync. Use for non-OpenWrt peers.
+<button> Dismiss
+<button> Save
+==== simple modal peer3
+h4: High Availability - General
+peer3.name [CBI.Value] Peer Name: value=legacy (placeholder "router2")
+peer3.address [CBI.Value] Peer IP Address: value=172.30.0.12 (placeholder "192.168.1.2")
+peer3.source_address [CBI.ListValue] Source Address: select=172.30.0.10 {172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer3.sync_enabled [CBI.FlagValue] Enable Synchronization: [x]
+  help: When disabled, this peer participates in VRRP failover but is excluded from config and lease sync. Use for non-OpenWrt peers.
+<button> Dismiss
+<button> Save
+==== simple modal lan
+h4: High Availability - General
+lan.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+lan.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.50.254 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+lan.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+lan.address6 [CBI.Value] Virtual IP Address (IPv6): value=fd00:192:168:50::254 (placeholder "fd00::1")
+  help: Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+lan.prefix6 [CBI.Value] IPv6 Prefix Length: value=64 (placeholder "64")
+lan.enabled [CBI.FlagValue] Enable: [x]
+<button> Dismiss
+<button> Save
+==== simple modal lan_old
+h4: High Availability - General
+lan_old.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+lan_old.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.50.253 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+lan_old.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+lan_old.address6 [CBI.Value] Virtual IP Address (IPv6): value= (placeholder "fd00::1")
+  help: Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+lan_old.enabled [CBI.FlagValue] Enable: [ ]
+<button> Dismiss
+<button> Save
+==== simple modal vpn6
+h4: High Availability - General
+vpn6.interface [CBI.ListValue] Interface: select=backend {backend,lan}
+vpn6.address [CBI.Value] Virtual IP Address (IPv4): value= (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+vpn6.address6 [CBI.Value] Virtual IP Address (IPv6): value=fd00:172:30::254 (placeholder "fd00::1")
+  help: Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+vpn6.prefix6 [CBI.Value] IPv6 Prefix Length: value=64 (placeholder "64")
+vpn6.enabled [CBI.FlagValue] Enable: [x]
+<button> Dismiss
+<button> Save
+==== owsync-advanced
+h2: High Availability - Advanced Config Sync
+Custom sync groups for services beyond General settings (e.g., VPN, mwan3).
+h3: Global Settings
+owsync global options.
+advanced.sync_interval [CBI.Value] Poll Interval (seconds): value=45 (placeholder "30")
+  help: Fallback scan interval. Changes are also detected via inotify events.
+advanced.owsync_log_level [CBI.ListValue] Log Level: select=1 {0,1,2,3}
+  help: Verbosity of owsync daemon logging.
+h3: Additional Sync Groups
+Click Edit to configure files.
+| Name | Status | Files | 
+| openvpn: openvpn | Enabled | 2 configured | [☰][Edit][Delete]
+| mwan3: mwan3 | Disabled | 1 configured | [☰][Edit][Delete]
+<input> 
+<button> Add
+h3: Exclusions
+Files never synced; exclusions take precedence over sync groups. Default: network, system, owsync, ha-cluster, wireless.
+<anon>.file [CBI.ChipListValue] Excluded Files: chip=network chip=system chip=owsync chip=ha-cluster chip=wireless value= (placeholder "/etc/dropbear/*.key") button "Add"
+==== owsync-advanced modal openvpn
+h4: High Availability - Advanced Config Sync - openvpn
+openvpn.enabled [CBI.FlagValue] Enable Sync: [x]
+  help: Enable synchronization for this group.
+openvpn.config_files [CBI.DynamicList] Files/Directories to Sync: item=openvpn item=/etc/openvpn/keys
+  help: UCI names (e.g., "openvpn") or absolute paths (e.g., "/etc/openvpn/keys").
+<button> Dismiss
+<button> Save
+==== owsync-advanced modal mwan3
+h4: High Availability - Advanced Config Sync - mwan3
+mwan3.enabled [CBI.FlagValue] Enable Sync: [ ]
+  help: Enable synchronization for this group.
+mwan3.config_files [CBI.DynamicList] Files/Directories to Sync: item=mwan3
+  help: UCI names (e.g., "openvpn") or absolute paths (e.g., "/etc/openvpn/keys").
+<button> Dismiss
+<button> Save
+==== lease-sync-advanced
+h2: High Availability - Advanced Lease Sync
+<alert> Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization.Go to Software page →
