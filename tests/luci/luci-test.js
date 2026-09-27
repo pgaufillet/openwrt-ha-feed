@@ -379,7 +379,7 @@ const ACTIONS = [
 		await fill(p, field('_new_', 'name'), 'router3');
 		await fill(p, field('_new_', 'address'), '192.168.50.20');
 		await select(p, field('_new_', 'source_address'), '192.168.50.10');
-		await setCheckbox(p, field('_new_', 'sync_enabled'), false);
+		await setCheckbox(p, field('_new_', 'vrrp_only'), true);
 		await modalSave(p);
 	}],
 	['general-peer-family-mismatch', 'full', 'simple', async p => {
@@ -401,7 +401,7 @@ const ACTIONS = [
 	['general-peer-vrrp-only', 'full', 'simple', async p => {
 		await p.click('[id="cbi-ha-cluster-peer1"] .cbi-button-edit');
 		await p.waitForSelector('.modal');
-		await setCheckbox(p, '.modal ' + field('peer1', 'sync_enabled'), false);
+		await setCheckbox(p, '.modal ' + field('peer1', 'vrrp_only'), true);
 		await modalSave(p);
 		await saveMain(p);
 	}],

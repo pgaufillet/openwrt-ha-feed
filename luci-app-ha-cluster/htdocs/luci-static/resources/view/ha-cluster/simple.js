@@ -38,6 +38,7 @@ return view.extend({
 		var netDevs = data[2] || [];
 		var leaseSyncInstalled = data[3] != null;
 		var owsyncInstalled = data[4] != null;
+		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var m, s, o;
 
 		// Build set of VIP addresses to exclude from source address selection
@@ -134,7 +135,16 @@ return view.extend({
 		o.rmempty = false;
 
 		// Peer Configuration
-		s = m.section(form.GridSection, 'peer', _('Peer Routers'));
+		var vrrpOnlyHelp = _('Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync.') + ' ' +
+			(transport === 'unicast'
+				? _('In unicast mode keepalived still sends it VRRP adverts.')
+				: _('In multicast mode VRRP does not use peer entries, so this entry only feeds the Status page.'));
+
+		s = m.section(form.GridSection, 'peer', _('Peer Routers'),
+			_('Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only.') + ' ' +
+			(transport === 'unicast'
+				? _('In unicast mode, VRRP adverts are sent to every peer listed here.')
+				: _('In multicast mode, VRRP does not use this list.')));
 		s.anonymous = true;
 		s.addremove = true;
 		s.sortable = true;
@@ -182,9 +192,7 @@ return view.extend({
 				});
 			});
 
-			var peerSyncEnabled = s2.option(form.Flag, 'sync_enabled', _('Enable Synchronization'),
-				_('When disabled, this peer participates in VRRP failover but is excluded from config and lease sync. Use for non-OpenWrt peers.'));
-			peerSyncEnabled.default = '1';
+			var peerVrrpOnly = s2.option(form.Flag, 'vrrp_only', _('VRRP only'), vrrpOnlyHelp);
 
 			m2.render().then(function(nodes) {
 				ui.showModal(_('Add Peer Router'), [
@@ -202,7 +210,7 @@ return view.extend({
 								var nameVal = peerName.formvalue('_new_');
 								var addrVal = peerAddress.formvalue('_new_');
 								var sourceVal = peerSource.formvalue('_new_');
-								var syncVal = peerSyncEnabled.formvalue('_new_');
+								var vrrpOnlyVal = peerVrrpOnly.formvalue('_new_');
 
 								if (!nameVal || !addrVal) {
 									ui.addNotification(null, E('p', _('Please fill in all fields')), 'warning');
@@ -231,7 +239,8 @@ return view.extend({
 									uci.set('ha-cluster', newSection, 'name', nameVal);
 									uci.set('ha-cluster', newSection, 'address', addrVal);
 									uci.set('ha-cluster', newSection, 'source_address', sourceVal);
-									uci.set('ha-cluster', newSection, 'sync_enabled', syncVal || '1');
+									if (vrrpOnlyVal === '1')
+										uci.set('ha-cluster', newSection, 'vrrp_only', '1');
 								}).then(function() {
 									ui.hideModal();
 									return mainMap.load();
@@ -256,6 +265,13 @@ return view.extend({
 			var name = uci.get('ha-cluster', section_id, 'name') || '-';
 			var addr = uci.get('ha-cluster', section_id, 'address') || '';
 			return name + (addr ? ' (' + addr + ')' : '');
+		};
+
+		o = s.option(form.DummyValue, '_role', _('Role'));
+		o.modalonly = false;
+		o.textvalue = function(section_id) {
+			return getBool(uci.get('ha-cluster', section_id, 'vrrp_only'), false)
+				? _('VRRP only') : _('Cluster node');
 		};
 
 		o = s.option(form.Value, 'name', _('Peer Name'));
@@ -311,10 +327,7 @@ return view.extend({
 			return true;
 		};
 
-		o = s.option(form.Flag, 'sync_enabled', _('Enable Synchronization'),
-			_('When disabled, this peer participates in VRRP failover but is excluded from config and lease sync. Use for non-OpenWrt peers.'));
-		o.default = '1';
-		o.rmempty = false;
+		o = s.option(form.Flag, 'vrrp_only', _('VRRP only'), vrrpOnlyHelp);
 		o.modalonly = true;
 
 		// Virtual IP Configuration
