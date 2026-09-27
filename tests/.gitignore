@@ -3,6 +3,7 @@ node_modules/
 
 # Built packages (download or build locally)
 packages/*.apk
+packages/old/
 
 # OpenWrt rootfs images
 images/*.tar.gz

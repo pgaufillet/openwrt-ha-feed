@@ -480,6 +480,55 @@ regenerated as for T24:
 CHAR_UPDATE=1 sh scenarios/25-luci.sh
 ```
 
+### Package Upgrade (T26)
+
+| ID | Scenario | Validates |
+|----|----------|-----------|
+| T26 | Package Upgrade | `apk` upgrade from the packages before the sync model change migrates and keeps the config, restarts the daemons by the new rules, and is idempotent |
+
+T26 builds `ha-cluster-node-old` from `Containerfile.node` with the old
+`ha-cluster` and `luci-app-ha-cluster` packages in place of the new ones,
+then, for each configuration, starts a throwaway node (procd, no network,
+veth pairs for `lan` and `backend`), writes an old-model
+`/etc/config/ha-cluster` (a T24 `migration` case, or the file shipped by
+the old package), starts the cluster and runs `apk add` with the new
+packages from `packages/`. It checks that:
+
+- `apk` ran the new post-upgrade script, which consumed the
+  `uci-defaults` migration (`default_postinst` in `/lib/functions.sh`
+  sources the package's `/etc/uci-defaults` files when not installing to
+  an image root);
+- the config equals the T24 expected output of the same case, with no
+  old-model section or option left. An unedited shipped file is replaced
+  by the new one (T24 case `10`); an edited one is kept and migrated, and
+  `apk` leaves the new shipped file next to it as `ha-cluster.apk-new`;
+- the ha-cluster procd instances, daemons and generated configs follow
+  the new rules, keepalived holds the VIP, and a restart changes nothing.
+  The upgrade restarts owsync and lease-sync on a config change but
+  leaves keepalived running, so its generated config must not change;
+- adding the same packages again runs nothing, and running the stored
+  post-upgrade script again with the migration file restored (what a
+  reinstall does; OpenWrt's `apk` cannot build the index a real
+  `apk fix -r` would need) changes neither the config nor the daemons.
+
+The old packages are built from the last commit before the model change
+with the Docker SDK flow (about 30 minutes), from the feed root, into
+`packages/old/` (ignored by git):
+```bash
+git worktree add --detach /tmp/feed-old 4b618c7
+mkdir -p /tmp/feed-old-out
+docker run --rm --userns=keep-id -v /tmp/feed-old:/feed:ro \
+    -v /tmp/feed-old-out:/output ha-feed-build-local \
+    ha-cluster luci-app-ha-cluster
+mkdir -p tests/packages/old
+cp /tmp/feed-old-out/*/ha_feed/ha-cluster-[0-9]*.apk \
+    /tmp/feed-old-out/*/ha_feed/luci-app-ha-cluster-[0-9]*.apk tests/packages/old/
+git worktree remove /tmp/feed-old
+```
+(`ha-feed-build-local` is the local-checkout image of
+`docker/README.md`.) T26 fails if they are missing. Logs, configs and
+syslogs per case are left in `logs/upgrade/`.
+
 ## Usage
 
 ### Run All Priority 1 Tests
