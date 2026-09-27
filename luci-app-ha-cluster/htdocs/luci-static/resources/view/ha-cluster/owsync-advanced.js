@@ -15,14 +15,13 @@ var ChipListValue = form.Value.extend({
 	renderChip: function(container, value) {
 		var self = this;
 		var chip = E('span', {
-			'class': 'label',
-			'style': 'display: inline-flex; align-items: center; margin: 2px 4px 2px 0; padding: 4px 8px; background: #f0f0f0; border-radius: 12px; font-family: monospace; font-size: 12px;',
+			'style': 'display: inline-flex; align-items: center; margin: 2px 4px 2px 0; padding: 3px 8px; border: 1px solid currentColor; border-radius: 12px; font-family: monospace; font-size: 12px;',
 			'data-value': value
 		}, [
 			E('span', {}, value),
 			E('button', {
 				'type': 'button',
-				'style': 'border: none; background: transparent; cursor: pointer; margin-left: 6px; padding: 0; font-size: 14px; color: #666; line-height: 1;',
+				'style': 'border: none; background: transparent; cursor: pointer; margin-left: 6px; padding: 0; font-size: 14px; color: inherit; line-height: 1;',
 				'title': _('Remove'),
 				'click': function(ev) {
 					ev.currentTarget.parentNode.remove();
@@ -47,7 +46,7 @@ var ChipListValue = form.Value.extend({
 
 		if (values.length === 0) {
 			chipsContainer.appendChild(E('span', {
-				'style': 'font-style: italic; color: #888;'
+				'style': 'font-style: italic;'
 			}, _('No exclusions configured')));
 		}
 
