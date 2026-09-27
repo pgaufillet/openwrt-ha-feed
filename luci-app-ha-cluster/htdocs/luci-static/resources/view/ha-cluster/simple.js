@@ -511,7 +511,7 @@ return view.extend({
 		o = s.option(form.Button, '_generate_key', _('Generate New Key'));
 		o.inputtitle = _('Generate New Key');
 		o.inputstyle = 'action';
-		o.onclick = function(section_id) {
+		o.onclick = function(ev, section_id) {
 			// Show modal
 			ui.showModal(_('Generating encryption key...'), [
 				E('p', { 'class': 'spinning' }, _('Generating secure random key...'))
@@ -537,15 +537,14 @@ return view.extend({
 							_('Copy this key to all cluster nodes.')
 						]),
 						E('pre', {
-							'style': 'background: #f5f5f5; padding: 10px; border-radius: 4px; user-select: all; font-family: monospace; word-break: break-all;',
-							'onclick': 'this.select(); document.execCommand("copy");'
+							'style': 'padding: 10px; border: 1px solid; border-radius: 4px; user-select: all; font-family: monospace; word-break: break-all;'
 						}, result.key),
-						E('p', { 'style': 'margin-top: 1em;' }, _('Click the key above to select and copy it.')),
+						E('p', { 'style': 'margin-top: 1em;' }, _('Click the key above to select it.')),
 						E('div', { 'class': 'alert-message info', 'style': 'margin-top: 1em;' }, [
 							E('strong', {}, _('Next steps:')),
 							E('ol', { 'style': 'margin: 0.5em 0;' }, [
 								E('li', {}, _('Save & Apply changes on this router')),
-								E('li', {}, _('On each peer router, go to: HA Cluster → General → Synchronization Settings')),
+								E('li', {}, _('On each peer router, go to: Services → High Availability → General → Synchronization')),
 								E('li', {}, _('Paste this key into the "Encryption Key" field')),
 								E('li', {}, _('Save & Apply on all peer routers'))
 							])
