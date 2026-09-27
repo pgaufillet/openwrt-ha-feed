@@ -226,7 +226,6 @@ node_id=ha-char
 sync_port=5378
 sync_interval=30
 peer_timeout=120
-persist_interval=60
 log_level=2
 bind_address=172.30.0.10
 

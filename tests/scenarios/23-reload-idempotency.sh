@@ -187,10 +187,10 @@ test_service_state_survives_reload() {
 test_advanced_section_honoured() {
     subheader "Named advanced section options are honoured"
 
-    # Use a distinctive, node-local value (lease flush cadence).
+    # Use a distinctive, node-local value (lease-sync peer timeout).
     exec_node "$NODE1" uci -q delete ha-cluster.advanced >/dev/null 2>&1
     exec_node "$NODE1" uci set ha-cluster.advanced='advanced' >/dev/null 2>&1
-    exec_node "$NODE1" uci set ha-cluster.advanced.lease_sync_persist_interval='77' >/dev/null 2>&1
+    exec_node "$NODE1" uci set ha-cluster.advanced.lease_sync_peer_timeout='77' >/dev/null 2>&1
     exec_node "$NODE1" uci commit ha-cluster >/dev/null 2>&1
 
     exec_node "$NODE1" /etc/init.d/ha-cluster restart >/dev/null 2>&1
@@ -198,8 +198,8 @@ test_advanced_section_honoured() {
 
     local conf
     conf=$(get_file_content "$NODE1" "$LEASE_SYNC_CONF")
-    assert_contains "$conf" "persist_interval=77" \
-        "advanced.lease_sync_persist_interval reaches lease-sync.conf"
+    assert_contains "$conf" "peer_timeout=77" \
+        "advanced.lease_sync_peer_timeout reaches lease-sync.conf"
 }
 
 # ============================================

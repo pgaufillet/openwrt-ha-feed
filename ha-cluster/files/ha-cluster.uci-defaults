@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 # Migrates /etc/config/ha-cluster to sync_group sections, the global
-# lease_sync switch and vrrp_only peers. Idempotent.
+# lease_sync switch and vrrp_only peers, and drops the lease-sync persist
+# interval. Idempotent.
 
 . /lib/functions.sh
 
@@ -56,6 +57,9 @@ migrate_peer() {
 	uci -q delete "ha-cluster.$section.sync_enabled"
 }
 config_foreach migrate_peer peer
+
+# Never implemented by lease-sync
+uci -q delete ha-cluster.advanced.lease_sync_persist_interval
 
 uci -q commit ha-cluster
 exit 0

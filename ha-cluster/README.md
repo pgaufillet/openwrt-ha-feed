@@ -265,7 +265,6 @@ SSID/key data. To sync it anyway, remove its exclusion and add a sync group.
 | `lease_sync_port` | int | `5378` | lease-sync UDP port |
 | `lease_sync_interval` | int | `30` | lease-sync periodic sync (seconds) |
 | `lease_sync_peer_timeout` | int | `120` | Peer timeout (seconds) |
-| `lease_sync_persist_interval` | int | `60` | Persist interval (seconds) |
 | `lease_sync_log_level` | int | `2` | lease-sync log level |
 | `max_auto_priority` | int | `0` | Auto-priority cap (0 = disabled) |
 | `enable_notifications` | bool | `0` | Email notifications |

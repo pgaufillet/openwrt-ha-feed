@@ -223,7 +223,6 @@ node_id=ha-char
 sync_port=5378
 sync_interval=30
 peer_timeout=120
-persist_interval=60
 log_level=2
 
 # Security: AES-256-GCM PSK encryption enabled
@@ -362,7 +361,6 @@ node_id=ha-char
 sync_port=5378
 sync_interval=30
 peer_timeout=120
-persist_interval=60
 log_level=2
 
 # Security: AES-256-GCM PSK encryption enabled

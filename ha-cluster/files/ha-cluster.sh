@@ -670,14 +670,13 @@ ha_add_owsync_exclude_conf() {
 
 ha_generate_lease_sync_conf() {
 	local lease_sync_port encryption_key
-	local sync_interval peer_timeout persist_interval log_level node_name bind_address
+	local sync_interval peer_timeout log_level node_name bind_address
 
 	config_load ha-cluster
 
 	config_get lease_sync_port advanced lease_sync_port "5378"
 	config_get sync_interval advanced lease_sync_interval "30"
 	config_get peer_timeout advanced lease_sync_peer_timeout "120"
-	config_get persist_interval advanced lease_sync_persist_interval "60"
 	config_get log_level advanced lease_sync_log_level "2"
 	config_get encryption_key config encryption_key ""
 	config_get bind_address config bind_address ""
@@ -709,7 +708,6 @@ node_id=${node_name}
 sync_port=${lease_sync_port}
 sync_interval=${sync_interval}
 peer_timeout=${peer_timeout}
-persist_interval=${persist_interval}
 log_level=${log_level}
 EOF
 
