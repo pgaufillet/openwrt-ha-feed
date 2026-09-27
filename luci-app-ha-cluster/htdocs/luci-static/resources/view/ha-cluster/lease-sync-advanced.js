@@ -46,25 +46,21 @@ return view.extend({
 			_('UDP port for lease sync.'));
 		o.datatype = 'port';
 		o.placeholder = '5378';
-		o.default = '5378';
 
 		o = s.option(form.Value, 'lease_sync_interval', _('Sync Interval'),
 			_('Seconds between full sync requests. Safety net for missed updates.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '30';
-		o.default = '30';
 
 		o = s.option(form.Value, 'lease_sync_peer_timeout', _('Peer Timeout'),
 			_('Seconds without heartbeat before peer is offline. Should be 4x sync_interval.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '120';
-		o.default = '120';
 
 		o = s.option(form.Value, 'lease_sync_persist_interval', _('Persist Interval'),
 			_('Seconds between disk writes. Increase to 300 for flash storage.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '60';
-		o.default = '60';
 
 		o = s.option(form.ListValue, 'lease_sync_log_level', _('Log Level'),
 			_('Use Debug (3) for troubleshooting sync issues.'));
@@ -73,6 +69,10 @@ return view.extend({
 		o.value('2', _('Info (default)'));
 		o.value('3', _('Debug'));
 		o.default = '2';
+		// Absent option: show the backend default without writing it
+		o.cfgvalue = function(section_id) {
+			return this.super('cfgvalue', arguments) || this.default;
+		};
 
 		return m.render().then(function(mapEl) {
 			if (['1', 'on', 'true', 'yes', 'enabled'].indexOf(uci.get('ha-cluster', 'config', 'lease_sync')) === -1)

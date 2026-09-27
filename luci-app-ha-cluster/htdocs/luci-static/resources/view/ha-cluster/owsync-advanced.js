@@ -162,7 +162,6 @@ return view.extend({
 			_('Fallback scan interval. Changes are also detected via inotify events.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '30';
-		o.default = '30';
 
 		o = s.option(form.ListValue, 'owsync_log_level', _('Log Level'),
 			_('Verbosity of owsync daemon logging.'));
@@ -171,6 +170,10 @@ return view.extend({
 		o.value('2', _('Info (default)'));
 		o.value('3', _('Debug'));
 		o.default = '2';
+		// Absent option: show the backend default without writing it
+		o.cfgvalue = function(section_id) {
+			return this.super('cfgvalue', arguments) || this.default;
+		};
 
 		// === Additional Sync Groups ===
 		s = m.section(form.GridSection, 'sync_group', _('Additional Sync Groups'),

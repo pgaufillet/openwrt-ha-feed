@@ -124,15 +124,16 @@ return view.extend({
 			_('VRRP priority (1-255). Higher priority becomes MASTER.'));
 		o.datatype = 'range(1,255)';
 		o.placeholder = '100';
-		o.default = '100';
-		o.rmempty = false;
 
 		o = s.option(form.ListValue, 'vrrp_transport', _('VRRP Transport'),
 			_('Multicast is the default. Use unicast when multicast is unavailable on the network.'));
 		o.value('multicast', _('Multicast'));
 		o.value('unicast', _('Unicast'));
 		o.default = 'multicast';
-		o.rmempty = false;
+		// Absent option: show the backend default without writing it
+		o.cfgvalue = function(section_id) {
+			return this.super('cfgvalue', arguments) || this.default;
+		};
 
 		// Peer Configuration
 		var vrrpOnlyHelp = _('Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync.') + ' ' +
@@ -399,8 +400,7 @@ return view.extend({
 
 		o = s.option(form.DummyValue, '_enabled_display', _('Enable'));
 		o.textvalue = function(section_id) {
-			var en = uci.get('ha-cluster', section_id, 'enabled');
-			return (en === '1' || en === true || en == null) ? _('Yes') : _('No');
+			return getBool(uci.get('ha-cluster', section_id, 'enabled'), true) ? _('Yes') : _('No');
 		};
 		o.modalonly = false;
 
@@ -471,8 +471,6 @@ return view.extend({
 		o = s.option(form.Value, 'netmask', _('Netmask'));
 		o.datatype = 'ip4addr';
 		o.placeholder = '255.255.255.0';
-		o.default = '255.255.255.0';
-		o.rmempty = false;
 		o.modalonly = true;
 		o.depends({ address: /.+/ });
 
@@ -493,15 +491,19 @@ return view.extend({
 		o = s.option(form.Value, 'prefix6', _('IPv6 Prefix Length'));
 		o.datatype = 'range(1,128)';
 		o.placeholder = '64';
-		o.default = '64';
-		o.rmempty = true;
 		o.modalonly = true;
 		o.depends({ address6: /.+/ });
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
-		o.default = '1';
 		o.rmempty = false;
 		o.modalonly = true;
+		o.cfgvalue = function(section_id) {
+			return getBool(uci.get('ha-cluster', section_id, 'enabled'), true) ? '1' : '0';
+		};
+		o.write = function(section_id, value) {
+			if (this.cfgvalue(section_id) !== value)
+				uci.set('ha-cluster', section_id, 'enabled', value);
+		};
 
 		// Synchronization: key, files (owsync), leases (lease-sync)
 		s = m.section(form.NamedSection, 'config', 'global', _('Synchronization'),

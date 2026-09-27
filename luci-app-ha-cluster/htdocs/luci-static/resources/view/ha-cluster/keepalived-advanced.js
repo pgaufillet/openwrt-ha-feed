@@ -192,7 +192,6 @@ return view.extend({
 			_('Set to 0 to disable auto-priority (recommended).'));
 		o.datatype = 'uinteger';
 		o.placeholder = '0';
-		o.default = '0';
 
 		o = s.option(form.ListValue, 'log_level', _('HA Cluster Log Level'),
 			_('Verbosity of ha-cluster shell scripts logging.'));
@@ -201,6 +200,10 @@ return view.extend({
 		o.value('2', _('Info (default)'));
 		o.value('3', _('Debug'));
 		o.default = '2';
+		// Absent option: show the backend default without writing it
+		o.cfgvalue = function(section_id) {
+			return this.super('cfgvalue', arguments) || this.default;
+		};
 
 		o = s.option(form.Flag, 'enable_notifications', _('Enable Email Notifications'),
 			_('Send email on state changes. Requires SMTP server.'));
@@ -298,7 +301,6 @@ return view.extend({
 			_('VRRP advertisement frequency (seconds). Lower = faster failover. Default: 1.'));
 		o.datatype = 'float';
 		o.placeholder = '1.0';
-		o.default = '1';
 		o.modalonly = true;
 
 		o = s.taboption('timing', form.Value, 'priority', _('Priority'),
@@ -425,7 +427,6 @@ return view.extend({
 			_('Seconds between checks.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '5';
-		o.default = '5';
 		o.modalonly = true;
 
 		o = s.option(form.Value, 'timeout', _('Timeout'),
