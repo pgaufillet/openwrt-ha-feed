@@ -206,7 +206,7 @@ same instance for atomic failover.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `enabled` | bool | `0` | Enable this VIP |
+| `enabled` | bool | `1` | Enable this VIP |
 | `vrrp_instance` | string | | Name of `vrrp_instance` section |
 | `interface` | string | | Logical interface (e.g. `lan`), resolved to its device |
 | `address` | string | | Virtual IPv4 address |

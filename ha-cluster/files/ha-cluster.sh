@@ -353,7 +353,7 @@ _ha_collect_vip_for_instance() {
 	local vip_enabled vip_instance vip_interface vip_interface_logical
 	local vip_address vip_netmask vip_address6 vip_prefix6
 
-	config_get_bool vip_enabled "$vip_section" enabled 0
+	config_get_bool vip_enabled "$vip_section" enabled 1
 	[ "$vip_enabled" -eq 0 ] && return 0
 
 	config_get vip_instance "$vip_section" vrrp_instance ""
@@ -809,7 +809,7 @@ _ha_check_dhcp_force() {
 	local section="$1"
 	local vip_enabled interface
 
-	config_get_bool vip_enabled "$section" enabled 0
+	config_get_bool vip_enabled "$section" enabled 1
 	[ "$vip_enabled" -eq 0 ] && return 0
 
 	config_get interface "$section" interface ""
