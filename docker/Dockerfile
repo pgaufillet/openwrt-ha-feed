@@ -85,10 +85,13 @@ RUN set -eux; \
 
 WORKDIR /home/build/openwrt-sdk
 
-# --- Register the ha_feed feed -----------------------------------------------
-# Keep the SDK's default upstream feeds, then append ha_feed.
+# --- Register the feeds ------------------------------------------------------
+# Keep the SDK's default upstream feeds and fetch them now: the SDK pins them
+# to fixed revisions, so doing it once here spares every build the download
+# and indexing. ha_feed is appended afterwards and updated at build time.
 RUN set -eux; \
     cp feeds.conf.default feeds.conf; \
+    ./scripts/feeds update -a; \
     echo "${HA_FEED_SRC}" >> feeds.conf
 
 # --- Build entrypoint --------------------------------------------------------

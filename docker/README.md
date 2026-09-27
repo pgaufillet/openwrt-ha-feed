@@ -146,8 +146,9 @@ docker run --rm \
 ## How it works
 
 1. **Dockerfile** — Debian base + OpenWrt build dependencies, downloads and
-   unpacks the SDK, and appends `ha_feed` to `feeds.conf`.
-2. **build-packages.sh** (entrypoint) — updates/installs feeds, selects
-   only the requested packages and their dependencies, compiles them in
-   parallel, optionally signs the index, and copies the artifacts to the
-   mounted `/output` directory.
+   unpacks the SDK, fetches its (pinned) upstream feeds, and appends
+   `ha_feed` to `feeds.conf`.
+2. **build-packages.sh** (entrypoint) — updates `ha_feed`, installs the
+   requested packages, selects only them and their dependencies, compiles
+   them in parallel, optionally signs the index, and copies the artifacts to
+   the mounted `/output` directory.

@@ -46,7 +46,15 @@ echo " Jobs:     $JOBS"
 echo "=============================================="
 
 echo "[1/4] Updating feeds..."
-./scripts/feeds update -a
+# The upstream feeds are fetched at image build time; update ha_feed, plus
+# any feed not fetched yet.
+feeds=()
+while read -r name; do
+    if [ "$name" = ha_feed ] || [ ! -f "feeds/$name.index" ]; then
+        feeds+=("$name")
+    fi
+done < <(awk '/^src-/ { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { print $i; break } }' feeds.conf)
+./scripts/feeds update "${feeds[@]}"
 
 echo "[2/4] Installing feed packages..."
 for pkg in "${PACKAGES[@]}"; do
