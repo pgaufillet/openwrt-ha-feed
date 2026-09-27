@@ -77,7 +77,6 @@ endef
 define Package/lease-sync/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] || {
-	/etc/init.d/lease-sync enable
 	echo "NOTE: Restart dnsmasq to activate the DHCP hotplug handler:"
 	echo "  /etc/init.d/dnsmasq restart"
 }
