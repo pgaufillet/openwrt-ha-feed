@@ -66,6 +66,56 @@ request_dhcp_lease() {
     done
 }
 
+# Request a one-shot lease from a single server, optionally sending a
+# hostname (the client sends none otherwise)
+# Usage: ip=$(request_pinned_lease "ha-client1" "192.168.50.10" [hostname])
+request_pinned_lease() {
+    local client="$1"
+    local server="$2"
+    local name="$3"
+
+    exec_client "$client" sh -c 'killall -9 dhcpcd; ip addr flush dev eth0; rm -rf /var/lib/dhcpcd/*' >/dev/null 2>&1
+    exec_client "$client" dhcpcd -4 -1 -t 20 --whitelist "$server" ${name:+-h "$name"} eth0 >/dev/null 2>&1
+    get_client_ip "$client"
+}
+
+# Delete every lease from both nodes, then let the delete retries expire.
+# Deletes on one node propagate to the peer, which echoes them back; the
+# echo fails and is retried for 15s, deleting any new lease for the same
+# address in that window.
+clear_node_leases() {
+    local node ip i
+    for node in "$NODE1" "$NODE2"; do
+        for ip in $(exec_node "$node" awk '{print $3}' /tmp/dhcp.leases 2>/dev/null); do
+            delete_lease "$node" "$ip" >/dev/null 2>&1 || true
+        done
+        for i in 1 2 3 4 5 6 7 8 9 10; do
+            if [ "$(get_lease_count "$NODE1")" = "0" ] &&
+               [ "$(get_lease_count "$NODE2")" = "0" ]; then
+                sleep 17
+                return 0
+            fi
+            sleep 1
+        done
+    done
+    return 1
+}
+
+# Print the hostname dnsmasq holds for a lease ("*" when none)
+# Usage: name=$(lease_hostname "node" "192.168.50.100")
+lease_hostname() {
+    exec_node "$1" awk -v ip="$2" '$3 == ip {print $4}' /tmp/dhcp.leases 2>/dev/null
+}
+
+# Count the leases a node injects over a window
+# Usage: n=$(count_injections "node" seconds)
+count_injections() {
+    local n
+    n=$(exec_node "$1" sh -c "logread -f & p=\$!; sleep $2; kill \$p" 2>/dev/null | \
+        grep -c 'UBus add_lease: added')
+    echo "${n:-0}"
+}
+
 # ============================================
 # Test Setup
 # ============================================
@@ -338,6 +388,69 @@ test_lease_release_sync() {
     fi
 }
 
+# Nameless clients must stay nameless on the peer; a leaked name would
+# make two leases on one node fight over it and loop between nodes
+test_nameless_leases() {
+    subheader "Nameless Lease Sync"
+
+    clear_node_leases || { fail "Could not clear leases"; return 1; }
+
+    local ip1 ip2 ip3
+    ip1=$(request_pinned_lease "$CLIENT1" "$NODE1_CLIENT_IP")
+    ip2=$(request_pinned_lease "$CLIENT2" "$NODE1_CLIENT_IP")
+    ip3=$(request_pinned_lease "$CLIENT2" "$NODE2_CLIENT_IP")
+    if [ -z "$ip1" ] || [ -z "$ip2" ] || [ -z "$ip3" ]; then
+        fail "Clients obtained no leases (${ip1:-none}, ${ip2:-none}, ${ip3:-none})"
+        return 1
+    fi
+    if ! wait_for_lease "$NODE2" "$ip1" "$SYNC_TIMEOUT" ||
+       ! wait_for_lease "$NODE2" "$ip2" "$SYNC_TIMEOUT" ||
+       ! wait_for_lease "$NODE1" "$ip3" "$SYNC_TIMEOUT"; then
+        fail "Leases did not sync"
+        return 1
+    fi
+    sleep 2
+
+    local result=0 node ip name
+    for node in "$NODE1" "$NODE2"; do
+        for ip in "$ip1" "$ip2" "$ip3"; do
+            name=$(lease_hostname "$node" "$ip")
+            [ "$name" = "*" ] && continue
+            fail "Lease $ip carries hostname '$name' on $node"
+            result=1
+        done
+    done
+    [ "$result" -eq 0 ] && pass "Nameless leases carry no hostname on either node"
+
+    # A settled cluster injects nothing; a loop injects over 10 leases/s
+    local n1 n2
+    n1=$(count_injections "$NODE1" 5)
+    n2=$(count_injections "$NODE2" 5)
+    assert_lt "$n1" 5 "$NODE1 injections in 5s: $n1" || result=1
+    assert_lt "$n2" 5 "$NODE2 injections in 5s: $n2" || result=1
+
+    return $result
+}
+
+# The peer must receive the client's hostname, not the serving node's
+test_synced_hostname() {
+    subheader "Synced Lease Hostname"
+
+    local ip
+    ip=$(request_pinned_lease "$CLIENT1" "$NODE1_CLIENT_IP" t05-named)
+    if [ -z "$ip" ]; then
+        fail "$CLIENT1 obtained no lease from $NODE1"
+        return 1
+    fi
+    if ! wait_for_lease "$NODE2" "$ip" "$SYNC_TIMEOUT"; then
+        fail "Lease $ip did not sync to $NODE2"
+        return 1
+    fi
+
+    assert_eq "t05-named" "$(lease_hostname "$NODE2" "$ip")" \
+        "Lease $ip keeps its hostname on $NODE2"
+}
+
 # ============================================
 # Cleanup
 # ============================================
@@ -351,6 +464,7 @@ cleanup() {
             dhcp_release "$client" 2>/dev/null || true
         fi
     done
+    clear_node_leases || true
 
     pass "Cleanup complete"
 }
@@ -383,6 +497,9 @@ main() {
     # Non-fatal: lease release requires dnsmasq to process the release and
     # lease-sync to propagate; may need full lease expiry time in some cases
     run_nonfatal test_lease_release_sync "release sync may require lease expiry"
+
+    test_nameless_leases || result=1
+    test_synced_hostname || result=1
 
     cleanup
 
