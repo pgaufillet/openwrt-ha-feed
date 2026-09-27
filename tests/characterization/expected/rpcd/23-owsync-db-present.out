@@ -10,6 +10,7 @@
             "name": "node2",
             "address": "172.30.0.11",
             "online": true,
+            "vrrp_only": false,
             "last_seen": "Just now"
         }
     ],
@@ -23,12 +24,14 @@
         },
         "owsync": {
             "required": true,
+            "wanted": true,
             "running": true,
             "pid": 99999,
             "uptime": 0
         },
         "lease-sync": {
             "required": true,
+            "wanted": true,
             "running": true,
             "pid": 99999,
             "uptime": 0

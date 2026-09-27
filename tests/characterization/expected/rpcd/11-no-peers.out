@@ -16,12 +16,14 @@
         },
         "owsync": {
             "required": false,
+            "wanted": false,
             "running": true,
             "pid": 99999,
             "uptime": 0
         },
         "lease-sync": {
             "required": false,
+            "wanted": false,
             "running": true,
             "pid": 99999,
             "uptime": 0
