@@ -1,0 +1,179 @@
+== /etc/config/ha-cluster
+# /etc/config/ha-cluster
+#
+# High Availability Cluster Configuration
+# This package orchestrates keepalived, owsync, and lease-sync
+
+config global 'config'
+	option enabled '1'
+
+	# VRRP priority (1-255, higher becomes MASTER)
+	option node_priority '150'
+
+	# VRRP transport: multicast (default, requires L2 adjacency) or unicast
+	option vrrp_transport 'unicast'
+
+	# Sync method
+	option sync_method 'owsync'  # owsync | none
+	option encryption_key '3c9d1e7a5b2f4c8e0d6a1b3f5e7c9a2d4f6b8e0a1c3e5a7c9b1d3f5a7c9e1b3d'
+
+	option bind_address '192.168.50.10'
+
+config vrrp_instance 'main'
+	option vrid '64'              # VRRP router ID (1-127), matches DJB2("main") in LuCI
+	option interface 'lan'        # Primary interface for VRRP adverts
+	option nopreempt '1'          # Don't reclaim MASTER on recovery (safer default)
+	option advert_int '1'         # Advertisement interval (seconds)
+	list track_script 'check_gateway'
+
+config vip 'lan_vip'
+	option enabled '1'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.50.254'
+	option netmask '255.255.255.0'
+	option address6 'fd00:192:168:50::254'
+	option prefix6 '64'
+
+config peer 'router2'
+	option name 'router2'
+	option address '192.168.50.11'
+	option source_address '192.168.50.10'
+
+config peer 'isp_box'
+	option name 'isp-box'
+	option address '192.168.50.1'
+	option source_address '192.168.50.10'
+	option sync_enabled '0'  # Set to 0 for non-OpenWrt peers (VRRP only, no sync)
+
+config service 'dhcp'
+	option enabled '1'            # Sync DHCP configuration
+	option sync_leases '1'        # Enable real-time lease-sync daemon
+	list config_files 'dhcp'
+
+config service 'firewall'
+	option enabled '1'
+	list config_files 'firewall'
+
+config service 'wireless'
+	option enabled '0'            # Sync wireless (disabled by default - hardware specific)
+	list config_files 'wireless'
+
+config service 'ipsec'
+	option enabled '1'
+	list config_files '/etc/swanctl/swanctl.conf'
+	list config_files '/etc/ipsec.secrets'
+
+# Advanced settings
+config advanced 'advanced'
+	option log_level '2'              # ha-cluster log level: 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG
+	option owsync_log_level '1'
+	option sync_interval '60'
+	option lease_sync_port '5378'     # lease-sync UDP port
+	option lease_sync_interval '30'   # lease-sync periodic sync interval
+	option lease_sync_peer_timeout '120'
+	option lease_sync_persist_interval '60'
+	option lease_sync_log_level '2'   # 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG
+	option max_auto_priority '0'      # Keepalived auto-priority cap (0 disables auto)
+	option enable_notifications '0'   # Email/script notifications
+
+# Files to exclude from sync (important!)
+config exclude
+	list file 'network'     # Each node has unique IPs
+	list file 'system'      # Each node has unique hostname
+	list file 'owsync'      # Don't sync the sync config
+	list file 'ha-cluster'  # Don't sync ha-cluster config
+	list file 'wireless'    # Often hardware-specific (unless explicitly enabled)
+
+config script 'check_gateway'
+	option script '/bin/ping -c 1 -W 1 192.168.50.1'
+	option interval '5'
+	option timeout '2'
+	option weight '-10'
+	option rise '2'
+	option fall '2'
+== migration rc=0
+== /etc/config/ha-cluster
+
+config global 'config'
+	option enabled '1'
+	option node_priority '150'
+	option vrrp_transport 'unicast'
+	option sync_method 'owsync'
+	option encryption_key '3c9d1e7a5b2f4c8e0d6a1b3f5e7c9a2d4f6b8e0a1c3e5a7c9b1d3f5a7c9e1b3d'
+	option bind_address '192.168.50.10'
+	option lease_sync '1'
+
+config vrrp_instance 'main'
+	option vrid '64'
+	option interface 'lan'
+	option nopreempt '1'
+	option advert_int '1'
+	list track_script 'check_gateway'
+
+config vip 'lan_vip'
+	option enabled '1'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.50.254'
+	option netmask '255.255.255.0'
+	option address6 'fd00:192:168:50::254'
+	option prefix6 '64'
+
+config peer 'router2'
+	option name 'router2'
+	option address '192.168.50.11'
+	option source_address '192.168.50.10'
+
+config peer 'isp_box'
+	option name 'isp-box'
+	option address '192.168.50.1'
+	option source_address '192.168.50.10'
+	option vrrp_only '1'
+
+config sync_group 'dhcp'
+	option enabled '1'
+	list config_files 'dhcp'
+
+config sync_group 'firewall'
+	option enabled '1'
+	list config_files 'firewall'
+
+config sync_group 'wireless'
+	option enabled '0'
+	list config_files 'wireless'
+
+config sync_group 'ipsec'
+	option enabled '1'
+	list config_files '/etc/swanctl/swanctl.conf'
+	list config_files '/etc/ipsec.secrets'
+
+config advanced 'advanced'
+	option log_level '2'
+	option owsync_log_level '1'
+	option sync_interval '60'
+	option lease_sync_port '5378'
+	option lease_sync_interval '30'
+	option lease_sync_peer_timeout '120'
+	option lease_sync_persist_interval '60'
+	option lease_sync_log_level '2'
+	option max_auto_priority '0'
+	option enable_notifications '0'
+
+config exclude
+	list file 'network'
+	list file 'system'
+	list file 'owsync'
+	list file 'ha-cluster'
+	list file 'wireless'
+
+config script 'check_gateway'
+	option script '/bin/ping -c 1 -W 1 192.168.50.1'
+	option interval '5'
+	option timeout '2'
+	option weight '-10'
+	option rise '2'
+	option fall '2'
+
+== second run rc=0
+(unchanged)
