@@ -3,4 +3,4 @@ add <anon1> peer
 set <anon1> name router3
 set <anon1> address 192.168.50.20
 set <anon1> source_address 192.168.50.10
-set <anon1> sync_enabled 0
+set <anon1> vrrp_only 1

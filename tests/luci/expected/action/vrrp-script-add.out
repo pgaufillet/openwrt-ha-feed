@@ -1,5 +1,4 @@
 staged:
 set check_dns script
 set check_dns script /usr/bin/nslookup openwrt.org 127.0.0.1
-set check_dns interval 5
 set check_dns weight -20

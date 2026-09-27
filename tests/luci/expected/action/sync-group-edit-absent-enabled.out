@@ -1,4 +1,2 @@
 staged:
-set openvpn enabled 1
-set advanced sync_interval 30
-set advanced owsync_log_level 2
+(none)

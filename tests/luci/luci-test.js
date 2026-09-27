@@ -479,7 +479,7 @@ const ACTIONS = [
 		await saveMain(p);
 	}],
 	['sync-group-add', 'full', 'owsync-advanced', async p => {
-		await addNamed(p, 'service', 'wireguard');
+		await addNamed(p, 'sync_group', 'wireguard');
 		await dynlistAdd(p, field('wireguard', 'config_files'), 'wireguard');
 		await dynlistAdd(p, field('wireguard', 'config_files'), '/etc/wireguard');
 		await modalSave(p);
@@ -492,8 +492,8 @@ const ACTIONS = [
 		await modalSave(p);
 		await saveMain(p);
 	}],
-	['sync-group-edit-absent-enabled', 'sync-off', 'owsync-advanced', async p => {
-		await p.click('.cbi-section-table-row .cbi-button-edit');
+	['sync-group-edit-absent-enabled', 'full', 'owsync-advanced', async p => {
+		await p.click('[id="cbi-ha-cluster-ipsec"] .cbi-button-edit');
 		await p.waitForSelector('.modal');
 		await settle(p);
 		await modalSave(p);

@@ -1,5 +1,4 @@
 staged:
-set config sync_method none
-set dhcp sync_leases 0
+set config lease_sync 0
 set dhcp enabled 0
 set firewall enabled 0

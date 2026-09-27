@@ -1,5 +1,4 @@
 staged:
-set wireguard service
-set wireguard enabled 1
+set wireguard sync_group
 list-add wireguard config_files wireguard
 list-add wireguard config_files /etc/wireguard

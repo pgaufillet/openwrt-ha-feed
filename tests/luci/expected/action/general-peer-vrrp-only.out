@@ -1,2 +1,2 @@
 staged:
-set peer1 sync_enabled 0
+set peer1 vrrp_only 1

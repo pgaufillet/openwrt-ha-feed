@@ -5,8 +5,8 @@ h3: Cluster Status
 | Cluster Overview
 | Cluster State | DEGRADED
 | Node Role | MASTER
-| Instance: 1 | MASTER
-| Instance: 2 | MASTER
+| Instance: main | MASTER
+| Instance: main_v6 | MASTER
 | Last Synchronization
 | Config Sync | <time>
 | Lease Sync | <time>
@@ -17,47 +17,49 @@ h3: Service Status
 | lease-sync | Running | <pid> | <uptime>
 h3: Peer Status
 | Peer Name | Address | State | Last Seen
-| vrrp-box | 192.168.50.30 | Offline | Unreachable
+| vrrp-box VRRP only | 192.168.50.30 | Offline | Unreachable
 ==== simple
 h2: High Availability - General
 Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.
 h3: Cluster Configuration
 config.enabled [CBI.FlagValue] Enable HA Cluster: [x]
   help: Enable high availability clustering on this router
-config.node_priority [CBI.Value] Priority: value=100 (placeholder "100")
+config.node_priority [CBI.Value] Priority: value= (placeholder "100")
   help: VRRP priority (1-255). Higher priority becomes MASTER.
 config.vrrp_transport [CBI.ListValue] VRRP Transport: select=multicast {multicast,unicast}
   help: Multicast is the default. Use unicast when multicast is unavailable on the network.
 h3: Peer Routers
-| Peer | 
-| <anon>: vrrp-box (192.168.50.30) | [☰][Edit][Delete]
+Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In multicast mode, VRRP does not use this list.
+| Peer | Role | 
+| <anon>: vrrp-box (192.168.50.30) | VRRP only | [☰][Edit][Delete]
 <button> Add
 h3: Virtual IP Addresses
 All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
 | Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
 | <anon>: <img> lan | 64 | 192.168.50.254 | none | Yes | [☰][Edit][Delete]
 <button> Add VIP...
-h3: Configuration Synchronization
-Select which /etc/config files to synchronize and how synchronization is performed.
-config.encryption_key [CBI.Value] Encryption Key: password= (placeholder "Click "Generate New Key" button below to create a secure random key") button "∗"
-  help: 256-bit AES encryption key (64 hexadecimal characters) for configuration sync (owsync) and DHCP lease sync (lease-sync). Must be identical on all cluster nodes. Leave empty to disable encryption.
+h3: Synchronization
+Keeps configuration files and DHCP leases identical on the cluster nodes. These settings must be the same on every node.
+config.encryption_key [CBI.Value] Encryption Key: password= (placeholder "Click "Generate New Key" below to create a secure random key") button "∗"
+  help: 256-bit AES key (64 hexadecimal characters), used for both configuration and lease sync. Must be identical on all nodes. Leave empty to sync in plaintext.
 config._generate_key [CBI.ButtonValue] Generate New Key: button "Generate New Key"
-config._dhcp_leases [CBI.FlagValue] Enable Real-time DHCP Lease Sync: [ ]
-  help: Synchronize DHCP leases in real-time using the lease-sync daemon for seamless client failover
-config.sync_method [CBI.ListValue] Sync Method: select=none {owsync,none}
-  help: owsync: real-time file synchronization. none: disable file synchronization.
-config._dhcp_config [CBI.FlagValue] Sync DHCP Configuration: [ ]
-  help: Synchronize /etc/config/dhcp (address pools, static leases, DNS settings)
-config._firewall_config [CBI.FlagValue] Sync Firewall Rules: [ ]
-  help: Synchronize /etc/config/firewall (port forwarding, rules, zones). Review rules before enabling.
+h3: Configuration Files
+config._group_dhcp [CBI.FlagValue] DHCP and DNS: [ ]
+  help: /etc/config/dhcp: address pools, static leases, DNS settings.
+config._group_firewall [CBI.FlagValue] Firewall: [ ]
+  help: /etc/config/firewall: zones, rules, port forwards. Review the rules before enabling: they apply to every node.
+config._group_others [CBI.DummyValue] Other files: text "1 group (0 enabled) Advanced Config Sync →"
+h3: DHCP Leases
+config.lease_sync [CBI.FlagValue] Real-time Lease Sync: [ ]
+  help: Replicates DHCP leases between nodes so that clients keep their address after a failover. Independent of the DHCP configuration sync above.
 ==== simple modal <anon>
 h4: High Availability - General
 <anon>.name [CBI.Value] Peer Name: value=vrrp-box (placeholder "router2")
 <anon>.address [CBI.Value] Peer IP Address: value=192.168.50.30 (placeholder "192.168.1.2")
-<anon>.source_address [CBI.ListValue] Source Address: select=192.168.50.10 {172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+<anon>.source_address [CBI.ListValue] Source Address: select=192.168.50.10 {,172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
   help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
-<anon>.sync_enabled [CBI.FlagValue] Enable Synchronization: [ ]
-  help: When disabled, this peer participates in VRRP failover but is excluded from config and lease sync. Use for non-OpenWrt peers.
+<anon>.vrrp_only [CBI.FlagValue] VRRP only: [x]
+  help: Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync. In multicast mode VRRP does not use peer entries, so this entry only feeds the Status page.
 <button> Dismiss
 <button> Save
 ==== simple modal <anon>
@@ -76,7 +78,7 @@ h2: High Availability - Advanced VRRP
 Advanced VRRP instance tuning. VIPs and instance assignment are in General.
 h3: Global Settings
 Keepalived global options and email notifications.
-advanced.max_auto_priority [CBI.Value] Max Auto Priority: value=0 (placeholder "0")
+advanced.max_auto_priority [CBI.Value] Max Auto Priority: value= (placeholder "0")
   help: Set to 0 to disable auto-priority (recommended).
 advanced.log_level [CBI.ListValue] HA Cluster Log Level: select=2 {0,1,2,3}
   help: Verbosity of ha-cluster shell scripts logging.
@@ -112,7 +114,7 @@ main.interface [CBI.ListValue] Primary Interface: select=lan {backend,lan}
 <button> Save
 [tab Timing]
 h4: High Availability - Advanced VRRP - main
-main.advert_int [CBI.Value] Advertisement Interval: value=1 (placeholder "1.0")
+main.advert_int [CBI.Value] Advertisement Interval: value= (placeholder "1.0")
   help: VRRP advertisement frequency (seconds). Lower = faster failover. Default: 1.
 main.priority [CBI.Value] Priority: value= (placeholder "Use global priority")
   help: Override global priority for this instance. Leave empty for global priority.
@@ -151,7 +153,7 @@ h2: High Availability - Advanced Config Sync
 Custom sync groups for services beyond General settings (e.g., VPN, mwan3).
 h3: Global Settings
 owsync global options.
-advanced.sync_interval [CBI.Value] Poll Interval (seconds): value=30 (placeholder "30")
+advanced.sync_interval [CBI.Value] Poll Interval (seconds): value= (placeholder "30")
   help: Fallback scan interval. Changes are also detected via inotify events.
 advanced.owsync_log_level [CBI.ListValue] Log Level: select=2 {0,1,2,3}
   help: Verbosity of owsync daemon logging.
@@ -166,7 +168,7 @@ Files never synced; exclusions take precedence over sync groups. Default: networ
 <em> This section contains no values yet
 ==== owsync-advanced modal openvpn
 h4: High Availability - Advanced Config Sync - openvpn
-openvpn.enabled [CBI.FlagValue] Enable Sync: [x]
+openvpn.enabled [CBI.FlagValue] Enable Sync: [ ]
   help: Enable synchronization for this group.
 openvpn.config_files [CBI.DynamicList] Files/Directories to Sync: item=openvpn
   help: UCI names (e.g., "openvpn") or absolute paths (e.g., "/etc/openvpn/keys").
@@ -175,15 +177,16 @@ openvpn.config_files [CBI.DynamicList] Files/Directories to Sync: item=openvpn
 ==== lease-sync-advanced
 h2: High Availability - Advanced Lease Sync
 Tuning for high-churn environments, unreliable networks, or troubleshooting.
+<alert> Lease sync is off. Turn it on in General › DHCP Leases; these settings apply once it runs.
 h3: Lease-Sync Tuning
 Default values work for most deployments.
-advanced.lease_sync_port [CBI.Value] Sync Port: value=5378 (placeholder "5378")
+advanced.lease_sync_port [CBI.Value] Sync Port: value= (placeholder "5378")
   help: UDP port for lease sync.
-advanced.lease_sync_interval [CBI.Value] Sync Interval: value=30 (placeholder "30")
+advanced.lease_sync_interval [CBI.Value] Sync Interval: value= (placeholder "30")
   help: Seconds between full sync requests. Safety net for missed updates.
-advanced.lease_sync_peer_timeout [CBI.Value] Peer Timeout: value=120 (placeholder "120")
+advanced.lease_sync_peer_timeout [CBI.Value] Peer Timeout: value= (placeholder "120")
   help: Seconds without heartbeat before peer is offline. Should be 4x sync_interval.
-advanced.lease_sync_persist_interval [CBI.Value] Persist Interval: value=60 (placeholder "60")
+advanced.lease_sync_persist_interval [CBI.Value] Persist Interval: value= (placeholder "60")
   help: Seconds between disk writes. Increase to 300 for flash storage.
 advanced.lease_sync_log_level [CBI.ListValue] Log Level: select=2 {0,1,2,3}
   help: Use Debug (3) for troubleshooting sync issues.
