@@ -120,8 +120,6 @@ case "$1" in
 						services_ok=0
 					fi
 
-					node_role="${node_role:-UNKNOWN}"
-
 					# The backend writes a daemon config only when procd has to
 					# run that daemon
 					[ -f "$OWSYNC_CONF" ] && owsync_required=1
