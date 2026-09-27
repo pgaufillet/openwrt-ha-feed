@@ -54,9 +54,17 @@ for pkg in "${PACKAGES[@]}"; do
 done
 
 echo "[3/4] Configuring and compiling packages in parallel..."
-for pkg in "${PACKAGES[@]}"; do
-    echo "CONFIG_PACKAGE_$pkg=m" >> .config
-done
+# The SDK defaults to CONFIG_ALL=y, which selects every package of every
+# source pulled in by "feeds install", optional dependencies included.
+# Select only the requested packages and what they depend on.
+{
+    echo "# CONFIG_ALL is not set"
+    echo "# CONFIG_ALL_KMODS is not set"
+    echo "# CONFIG_ALL_NONSHARED is not set"
+    for pkg in "${PACKAGES[@]}"; do
+        echo "CONFIG_PACKAGE_$pkg=m"
+    done
+} > .config
 # Expand the minimal package selection into a full .config.
 make defconfig
 # Compile all in parallel
