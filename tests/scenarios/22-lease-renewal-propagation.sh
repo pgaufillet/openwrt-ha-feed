@@ -9,9 +9,10 @@
 #
 # Requires: script-on-renewal in dnsmasq conf-dir overlay (ha-cluster.conf)
 #
-# Strategy: temporarily set a very short lease time (60s) so that dhcpcd
-# naturally renews at T1 (50% = 30s). After renewal, the lease expiry
-# timestamp changes and should propagate to the peer.
+# Strategy: temporarily set a short lease time (120s, the minimum dnsmasq
+# accepts) so that dhcpcd naturally renews at T1 (50% = 60s). After
+# renewal, the lease expiry timestamp changes and should propagate to the
+# peer.
 #
 # Copyright (C) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 
@@ -29,8 +30,9 @@ TEST_DIR="$(dirname "$SCRIPT_DIR")"
 # ============================================
 
 CLIENT1="ha-client1"
-# Short lease time for this test (seconds). T1 renewal at 50% = 30s.
-SHORT_LEASETIME="60"
+# Short lease time for this test (seconds). dnsmasq raises anything
+# shorter to 120s. T1 renewal at 50% = 60s.
+SHORT_LEASETIME="120"
 
 # ============================================
 # Helper Functions
@@ -44,14 +46,25 @@ get_lease_expiry() {
     exec_node "$node" sh -c "grep '$ip' /tmp/dhcp.leases 2>/dev/null | awk '{print \$1}'" | head -1
 }
 
+# DHCP server identifier of the client's current lease
+# Usage: sid=$(get_server_id "ha-client1")
+get_server_id() {
+    exec_client "$1" dhcpcd -4 -U eth0 2>/dev/null | \
+        sed -n 's/^dhcp_server_identifier=//p' | tr -d "'"
+}
+
 # Request a fresh DHCP lease (single dhcpcd instance, daemon mode)
 # Unlike the library's dhcp_request() which uses one-shot mode (-1),
 # this starts dhcpcd as a persistent daemon so it can perform natural
 # T1 renewal — required for the renewal propagation test.
+# The client only accepts packets from $server_ip: both nodes are
+# authoritative, and the NAK ("wrong server-ID") of the node it did not
+# select often beats the ACK and restarts discovery with backoff.
 # Outputs only the obtained IP on stdout.
-# Usage: ip=$(request_fresh_lease "ha-client1")
+# Usage: ip=$(request_fresh_lease "ha-client1" "192.168.50.10")
 request_fresh_lease() {
     local client="$1"
+    local server_ip="$2"
 
     # Kill ALL dhcpcd instances and clear state
     exec_client "$client" sh -c 'killall -9 dhcpcd 2>/dev/null || true'
@@ -69,7 +82,7 @@ request_fresh_lease() {
     sleep 1
 
     # Start dhcpcd in daemon mode (stays running for natural renewal)
-    exec_client "$client" sh -c 'dhcpcd -t 15 eth0 >/dev/null 2>&1' || true
+    exec_client "$client" sh -c "dhcpcd --whitelist=$server_ip -t 15 eth0 >/dev/null 2>&1" || true
 
     # Wait for lease
     count=0
@@ -149,13 +162,13 @@ setup() {
 # ============================================
 
 CLIENT_IP=""
-DHCP_SERVER=""
+DHCP_SERVER="$NODE1"
 
 test_initial_lease() {
     subheader "Obtain Initial Lease"
 
-    info "Requesting fresh DHCP lease for $CLIENT1..."
-    CLIENT_IP=$(request_fresh_lease "$CLIENT1")
+    info "Requesting fresh DHCP lease for $CLIENT1 from $DHCP_SERVER..."
+    CLIENT_IP=$(request_fresh_lease "$CLIENT1" "$NODE1_CLIENT_IP")
 
     if [ -z "$CLIENT_IP" ]; then
         fail "$CLIENT1 failed to obtain DHCP lease"
@@ -163,13 +176,20 @@ test_initial_lease() {
     fi
     pass "$CLIENT1 obtained lease: $CLIENT_IP"
 
-    # Find which node served the lease
-    DHCP_SERVER=$(find_lease_server "$CLIENT_IP" "lease_exists" 10)
-    if [ -z "$DHCP_SERVER" ]; then
-        fail "Lease not found on any node"
+    # The lease also reaches the peer by sync: prove the server from the
+    # client's server identifier, not from the lease file
+    local sid
+    sid=$(get_server_id "$CLIENT1")
+    if [ "$sid" != "$NODE1_CLIENT_IP" ]; then
+        fail "Lease not served by $DHCP_SERVER (server identifier: ${sid:-none})"
         return 1
     fi
-    pass "Lease served by $DHCP_SERVER"
+    if wait_for_lease "$DHCP_SERVER" "$CLIENT_IP" 10; then
+        pass "Lease served by $DHCP_SERVER (server identifier)"
+    else
+        fail "Lease not found on serving node $DHCP_SERVER"
+        return 1
+    fi
 
     # Wait for initial sync to peer
     local peer
@@ -196,26 +216,31 @@ test_renewal_updates_expiry() {
     fi
     info "Expiry before renewal: $expiry_before"
 
-    # Wait for natural renewal (T1 = 50% of lease time)
-    # With 60s lease, T1 is at 30s. Add margin for processing.
-    local wait_time=$(( SHORT_LEASETIME / 2 + 10 ))
-    info "Waiting ${wait_time}s for natural DHCP renewal (T1=${SHORT_LEASETIME}/2)..."
-    sleep "$wait_time"
-
-    # Check expiry changed on DHCP server
-    local expiry_after
-    expiry_after=$(get_lease_expiry "$DHCP_SERVER" "$CLIENT_IP")
+    # Poll for natural renewal (T1 = 50% of lease time) with a margin.
+    # A renewal moves the expiry by about T1; ignore sync jitter.
+    local wait_time=$(( SHORT_LEASETIME / 2 + 20 ))
+    local min_delta=$(( SHORT_LEASETIME / 4 ))
+    info "Waiting up to ${wait_time}s for natural DHCP renewal (T1=${SHORT_LEASETIME}/2)..."
+    local expiry_after=""
+    local count=0
+    while [ $count -lt "$wait_time" ]; do
+        expiry_after=$(get_lease_expiry "$DHCP_SERVER" "$CLIENT_IP")
+        [ -n "$expiry_after" ] && \
+            [ $((expiry_after - expiry_before)) -ge "$min_delta" ] && break
+        sleep 1
+        count=$((count + 1))
+    done
 
     if [ -z "$expiry_after" ]; then
         fail "Lease disappeared from $DHCP_SERVER after renewal window"
         return 1
     fi
 
-    if [ "$expiry_after" != "$expiry_before" ]; then
-        local delta=$((expiry_after - expiry_before))
+    local delta=$((expiry_after - expiry_before))
+    if [ "$delta" -ge "$min_delta" ]; then
         pass "Expiry updated on $DHCP_SERVER: $expiry_before -> $expiry_after (delta: ${delta}s)"
     else
-        fail "Expiry did not change on $DHCP_SERVER after renewal (still $expiry_before)"
+        fail "Expiry not renewed on $DHCP_SERVER: $expiry_before -> $expiry_after (delta: ${delta}s)"
         info "This likely means script-on-renewal is not active or dhcpcd did not renew"
         # Show dnsmasq log for diagnosis
         info "Recent dnsmasq/lease-sync logs on $DHCP_SERVER:"
@@ -267,8 +292,9 @@ test_renewal_propagates_to_peer() {
 cleanup() {
     subheader "Cleanup"
 
-    # Kill dhcpcd daemon and release client lease
+    # Release client lease and kill dhcpcd daemon
     if client_running "$CLIENT1"; then
+        exec_client "$CLIENT1" sh -c 'dhcpcd -k eth0 >/dev/null 2>&1 || true'
         exec_client "$CLIENT1" sh -c 'killall -9 dhcpcd 2>/dev/null || true'
         exec_client "$CLIENT1" sh -c 'ip addr flush dev eth0 2>/dev/null || true'
     fi
@@ -304,7 +330,7 @@ main() {
     local result=0
 
     setup || return 0
-    test_initial_lease || return 1
+    test_initial_lease || { cleanup; return 1; }
     test_renewal_updates_expiry || result=1
     test_renewal_propagates_to_peer || result=1
     cleanup
