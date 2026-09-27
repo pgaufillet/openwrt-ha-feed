@@ -7,6 +7,7 @@
 'require form';
 'require uci';
 'require ui';
+'require fs';
 
 var ChipListValue = form.Value.extend({
 	__name__: 'CBI.ChipListValue',
@@ -115,13 +116,39 @@ var ChipListValue = form.Value.extend({
 
 return view.extend({
 	load: function() {
-		return uci.load('ha-cluster');
+		return Promise.all([
+			uci.load('ha-cluster'),
+			L.resolveDefault(fs.stat('/usr/bin/owsync'), null)
+		]);
 	},
 
-	render: function() {
+	render: function(data) {
+		var owsyncInstalled = data[1] != null;
+
+		if (!owsyncInstalled) {
+			return E('div', { 'class': 'cbi-map' }, [
+				E('h2', {}, _('High Availability - Advanced Config Sync')),
+				E('div', { 'class': 'alert-message info' }, [
+					E('p', {}, _('Install the owsync package to synchronize configuration files.')),
+					E('p', {}, [
+						E('a', { 'href': '/cgi-bin/luci/admin/system/package-manager' }, _('Go to Software page') + ' \u2192')
+					])
+				])
+			]);
+		}
+
 		var m, s, o;
 		var self = this;
 		var baseServices = ['dhcp', 'firewall'];
+
+		// UCI boolean as read by config_get_bool
+		var getBool = function(value, dflt) {
+			if (['1', 'on', 'true', 'yes', 'enabled'].indexOf(value) !== -1)
+				return true;
+			if (['0', 'off', 'false', 'no', 'disabled'].indexOf(value) !== -1)
+				return false;
+			return dflt;
+		};
 
 		m = new form.Map('ha-cluster', _('High Availability - Advanced Config Sync'),
 			_('Custom sync groups for services beyond General settings (e.g., VPN, mwan3).'));
@@ -147,7 +174,7 @@ return view.extend({
 		o.default = '2';
 
 		// === Additional Sync Groups ===
-		s = m.section(form.GridSection, 'service', _('Additional Sync Groups'),
+		s = m.section(form.GridSection, 'sync_group', _('Additional Sync Groups'),
 			_('Click Edit to configure files.'));
 		s.anonymous = false;
 		s.addremove = true;
@@ -162,15 +189,12 @@ return view.extend({
 		o = s.option(form.DummyValue, '_enabled_status', _('Status'));
 		o.textvalue = function(section_id) {
 			var enabled = uci.get('ha-cluster', section_id, 'enabled');
-			if (enabled === '1' || enabled === true) {
-				return E('span', { 'class': 'cbi-value-field' }, [
-					E('span', { 'class': 'label success' }, _('Enabled'))
-				]);
-			} else {
-				return E('span', { 'class': 'cbi-value-field' }, [
-					E('span', { 'class': 'label' }, _('Disabled'))
-				]);
-			}
+			var content = [ getBool(enabled, true)
+				? E('span', { 'class': 'label success' }, _('Enabled'))
+				: E('span', { 'class': 'label' }, _('Disabled')) ];
+			if (enabled == null)
+				content.push(' ', E('em', {}, _('(not set)')));
+			return E('span', { 'class': 'cbi-value-field' }, content);
 		};
 		o.modalonly = false;
 
@@ -184,9 +208,15 @@ return view.extend({
 
 		o = s.option(form.Flag, 'enabled', _('Enable Sync'),
 			_('Enable synchronization for this group.'));
-		o.default = '1';
 		o.rmempty = false;
 		o.modalonly = true;
+		o.cfgvalue = function(section_id) {
+			return getBool(uci.get('ha-cluster', section_id, 'enabled'), true) ? '1' : '0';
+		};
+		o.write = function(section_id, value) {
+			if (this.cfgvalue(section_id) !== value)
+				uci.set('ha-cluster', section_id, 'enabled', value);
+		};
 
 		o = s.option(form.DynamicList, 'config_files', _('Files/Directories to Sync'),
 			_('UCI names (e.g., "openvpn") or absolute paths (e.g., "/etc/openvpn/keys").'));
