@@ -180,8 +180,14 @@ All configuration lives in `/etc/config/ha-cluster`.
 Each section defines a VRRP instance. All VIPs referencing the same instance
 fail over atomically as a group (one advertisement, one failover event).
 
-When any VIP in the group has `address6` set, a second VRRP instance is
-created automatically using VRID+128 for all IPv6 VIPs.
+With multicast VRRP, when any VIP in the group has `address6` set, a
+second VRRP instance is created automatically using VRID+128 for all IPv6
+VIPs. With unicast peers (`vrrp_transport` `unicast` or a `unicast_peer`
+list), a single instance is created in the address family of
+`unicast_src_ip`, or else of the first peer: the VIPs of the other family
+fail over with it without being advertised, and peers of the other family
+are ignored with a warning. A `unicast_src_ip` matching the family of no
+peer is ignored with an error, and the first peer sets the family.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -211,7 +217,7 @@ same instance for atomic failover.
 | `interface` | string | | Logical interface (e.g. `lan`), resolved to its device |
 | `address` | string | | Virtual IPv4 address |
 | `netmask` | string | `255.255.255.0` | IPv4 netmask |
-| `address6` | string | | Virtual IPv6 address (optional, uses VRID+128) |
+| `address6` | string | | Virtual IPv6 address (optional, uses VRID+128 with multicast) |
 | `prefix6` | int | `64` | IPv6 prefix length |
 
 ### Peers (`config peer`)
@@ -281,7 +287,7 @@ numeric prefix above 50 (e.g. `60-vpn-failover`).
 Available environment variables:
 - `ACTION` — `MASTER`, `BACKUP` or `FAULT`
 - `TYPE` — `INSTANCE`
-- `NAME` — instance name (e.g. `main`, or `main_v6` for its IPv6 instance)
+- `NAME` — instance name (e.g. `main`, or `main_v6` for its multicast IPv6 instance)
 
 ## Files
 

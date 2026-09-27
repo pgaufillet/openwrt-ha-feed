@@ -398,14 +398,69 @@ _ha_collect_vip_for_instance() {
 	fi
 }
 
-# One keepalived vrrp_instance per UCI vrrp_instance for its IPv4 VIPs, plus
-# a second one (VRID+128) for its IPv6 VIPs, as a VRRP instance advertises a
-# single address family.
+# Usage: _ha_ip_family "addr" -> "4" or "6"
+_ha_ip_family() {
+	case "$1" in
+		*:*) echo 6 ;;
+		*) echo 4 ;;
+	esac
+}
+
+# Usage: _ha_write_vrrp_instance name vrid vips [evips]
+# Uses parent-scope variables of ha_generate_vrrp_group.
+_ha_write_vrrp_instance() {
+	local name="$1"
+	local inst_vrid="$2"
+	local vips="$3"
+	local evips="$4"
+
+	cat >> "$KEEPALIVED_CONF" <<EOF
+vrrp_instance ${name} {
+    state BACKUP
+    interface $interface
+    virtual_router_id $inst_vrid
+    priority $priority
+    advert_int $advert_int
+EOF
+
+	_ha_write_vrrp_instance_options "$name"
+
+	if [ -n "$vips" ]; then
+		echo "    virtual_ipaddress {" >> "$KEEPALIVED_CONF"
+		printf '%s' "$vips" >> "$KEEPALIVED_CONF"
+		echo "    }" >> "$KEEPALIVED_CONF"
+	else
+		# Only excluded VIPs: fatal for VRRPv3 (IPv6) without it
+		echo "    no_virtual_ipaddress" >> "$KEEPALIVED_CONF"
+	fi
+	if [ -n "$evips" ]; then
+		echo "    virtual_ipaddress_excluded {" >> "$KEEPALIVED_CONF"
+		printf '%s' "$evips" >> "$KEEPALIVED_CONF"
+		echo "    }" >> "$KEEPALIVED_CONF"
+	fi
+
+	cat >> "$KEEPALIVED_CONF" <<EOF
+
+    # Notify scripts for state changes
+    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=${name} /sbin/hotplug-call keepalived"
+    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=${name} /sbin/hotplug-call keepalived"
+    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=${name} /sbin/hotplug-call keepalived"
+}
+
+EOF
+}
+
+# A VRRP instance advertises a single address family. Multicast: one
+# keepalived vrrp_instance per UCI vrrp_instance for its IPv4 VIPs, plus a
+# second one (VRID+128) for its IPv6 VIPs. Unicast: a single instance in
+# the family of its unicast addresses, with the VIPs of the other family
+# as excluded (not advertised) addresses.
 ha_generate_vrrp_group() {
 	local section="$1"
 	local interface interface_logical vrid priority nopreempt track_interface
 	local advert_int preempt_delay garp_master_delay auth_type auth_pass unicast_src_ip
-	local track_ifaces="" track_scripts="" unicast_peers=""
+	local track_ifaces="" track_scripts="" unicast_peers="" unicast_family=""
+	local peer first_peer family_peers
 
 	config_get interface_logical "$section" interface
 	config_get vrid "$section" vrid
@@ -475,8 +530,33 @@ ha_generate_vrrp_group() {
 		ha_log_debug "vrrp_instance $section: unicast auto-derived from peer config"
 	fi
 
-	if [ -n "$unicast_peers" ] && [ -z "$unicast_src_ip" ]; then
-		ha_log_warning "vrrp_instance $section has unicast_peer but no unicast_src_ip"
+	# keepalived takes the instance family from its first unicast address
+	# and skips the addresses of the other family
+	if [ -n "$unicast_peers" ]; then
+		for first_peer in $unicast_peers; do break; done
+		if [ -n "$unicast_src_ip" ]; then
+			unicast_family=$(_ha_ip_family "$unicast_src_ip")
+			for peer in $unicast_peers; do
+				[ "$(_ha_ip_family "$peer")" = "$unicast_family" ] && break
+			done
+			if [ "$(_ha_ip_family "$peer")" != "$unicast_family" ]; then
+				ha_log_error "vrrp_instance $section: no IPv$unicast_family unicast peer for unicast_src_ip $unicast_src_ip, ignoring it"
+				unicast_src_ip=""
+				unicast_family=$(_ha_ip_family "$first_peer")
+			fi
+		else
+			ha_log_warning "vrrp_instance $section has unicast_peer but no unicast_src_ip"
+			unicast_family=$(_ha_ip_family "$first_peer")
+		fi
+		family_peers=""
+		for peer in $unicast_peers; do
+			if [ "$(_ha_ip_family "$peer")" = "$unicast_family" ]; then
+				family_peers="$family_peers $peer"
+			else
+				ha_log_warning "vrrp_instance $section: ignoring unicast peer $peer (not IPv$unicast_family)"
+			fi
+		done
+		unicast_peers="$family_peers"
 	fi
 
 	_ha_current_instance="$section"
@@ -489,30 +569,17 @@ ha_generate_vrrp_group() {
 		return 0
 	}
 
+	if [ -n "$unicast_peers" ]; then
+		if [ "$unicast_family" = 6 ]; then
+			_ha_write_vrrp_instance "$section" "$vrid" "$_ha_vip_v6_addrs" "$_ha_vip_v4_addrs"
+		else
+			_ha_write_vrrp_instance "$section" "$vrid" "$_ha_vip_v4_addrs" "$_ha_vip_v6_addrs"
+		fi
+		return 0
+	fi
+
 	if [ -n "$_ha_vip_v4_addrs" ]; then
-		cat >> "$KEEPALIVED_CONF" <<EOF
-vrrp_instance ${section} {
-    state BACKUP
-    interface $interface
-    virtual_router_id $vrid
-    priority $priority
-    advert_int $advert_int
-EOF
-
-		_ha_write_vrrp_instance_options "$section"
-
-		echo "    virtual_ipaddress {" >> "$KEEPALIVED_CONF"
-		printf '%s' "$_ha_vip_v4_addrs" >> "$KEEPALIVED_CONF"
-		cat >> "$KEEPALIVED_CONF" <<EOF
-    }
-
-    # Notify scripts for state changes
-    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=${section} /sbin/hotplug-call keepalived"
-    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=${section} /sbin/hotplug-call keepalived"
-    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=${section} /sbin/hotplug-call keepalived"
-}
-
-EOF
+		_ha_write_vrrp_instance "$section" "$vrid" "$_ha_vip_v4_addrs"
 	fi
 
 	if [ -n "$_ha_vip_v6_addrs" ]; then
@@ -522,29 +589,7 @@ EOF
 			return 1
 		fi
 
-		cat >> "$KEEPALIVED_CONF" <<EOF
-vrrp_instance ${section}_v6 {
-    state BACKUP
-    interface $interface
-    virtual_router_id $vrid6
-    priority $priority
-    advert_int $advert_int
-EOF
-
-		_ha_write_vrrp_instance_options "${section}_v6"
-
-		echo "    virtual_ipaddress {" >> "$KEEPALIVED_CONF"
-		printf '%s' "$_ha_vip_v6_addrs" >> "$KEEPALIVED_CONF"
-		cat >> "$KEEPALIVED_CONF" <<EOF
-    }
-
-    # Notify scripts for state changes
-    notify_master "/bin/busybox env -i ACTION=MASTER TYPE=INSTANCE NAME=${section}_v6 /sbin/hotplug-call keepalived"
-    notify_backup "/bin/busybox env -i ACTION=BACKUP TYPE=INSTANCE NAME=${section}_v6 /sbin/hotplug-call keepalived"
-    notify_fault "/bin/busybox env -i ACTION=FAULT TYPE=INSTANCE NAME=${section}_v6 /sbin/hotplug-call keepalived"
-}
-
-EOF
+		_ha_write_vrrp_instance "${section}_v6" "$vrid6" "$_ha_vip_v6_addrs"
 	fi
 }
 
