@@ -8,7 +8,6 @@
 
 case "$1" in
 	list)
-		# List available methods and their parameters
 		json_init
 		json_add_object "generate_key"
 		json_close_object
@@ -24,7 +23,6 @@ case "$1" in
 	call)
 		case "$2" in
 			generate_key)
-				# Generate secure 256-bit encryption key
 				key=$(hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom 2>/dev/null)
 
 				if [ -z "$key" ] || [ ${#key} -ne 64 ]; then
@@ -42,9 +40,6 @@ case "$1" in
 				;;
 
 			status)
-				# Get comprehensive cluster status
-
-				# Initialize variables
 				node_role="UNKNOWN"
 				cluster_state="STOPPED"
 				services_ok=1
@@ -56,18 +51,15 @@ case "$1" in
 				owsync_wanted=0
 				lease_sync_wanted=0
 
-				# Check if ha-cluster is enabled
 				ha_enabled=$(get_bool "$(uci -q get ha-cluster.config.enabled)" 0)
 
 				if [ "$ha_enabled" != "1" ]; then
 					cluster_state="STOPPED"
 				else
-					# Get keepalived status via ubus
 					keepalived_data=$(ubus call keepalived dump 2>/dev/null)
 
 					if [ -n "$keepalived_data" ]; then
-						# Parse per-instance VRRP state (in subshell to avoid state pollution)
-						# Output format: instance_name:STATE per line
+						# Subshell keeps the jshn state clean; prints one name:STATE per line
 						instance_roles=$(
 							. /usr/share/libubox/jshn.sh
 							json_load "$keepalived_data" 2>/dev/null || exit 1
@@ -98,7 +90,6 @@ case "$1" in
 							done
 						)
 
-						# Compute aggregate role from per-instance roles
 						has_fault=0
 						has_master=0
 						has_backup=0
@@ -129,7 +120,6 @@ case "$1" in
 						services_ok=0
 					fi
 
-					# Ensure node_role is always set (fallback if parsing failed)
 					node_role="${node_role:-UNKNOWN}"
 
 					# The backend writes a daemon config only when procd has to
@@ -153,35 +143,29 @@ case "$1" in
 					fi
 				fi
 
-				# Get sync statistics (MVP: timestamps only)
 				config_last_sync=0
 				lease_last_sync=0
 
-				# BusyBox doesn't support stat -c, use date -r instead
+				# OpenWrt's BusyBox has no stat(1)
 				owsync_db=""
 				[ -f "$OWSYNC_CONF" ] && owsync_db=$(sed -n 's/^database=//p' "$OWSYNC_CONF" | tail -n 1)
 				if [ -n "$owsync_db" ] && [ -f "$owsync_db" ]; then
 					config_last_sync=$(date -r "$owsync_db" +%s 2>/dev/null || echo 0)
 				fi
 
-				# Check dnsmasq lease file for last sync timestamp
-				# Get leasefile location from UCI (default: /tmp/dhcp.leases)
 				leasefile=$(uci -q get dhcp.@dnsmasq[0].leasefile)
 				leasefile=${leasefile:-/tmp/dhcp.leases}
 				if [ -f "$leasefile" ]; then
 					lease_last_sync=$(date -r "$leasefile" +%s 2>/dev/null || echo 0)
 				fi
 
-				# Build peer list and check connectivity in a single pass
 				json_init
 				json_add_string role "$node_role"
 
-				# Add per-instance roles
 				json_add_object instances
 				for entry in $instance_roles; do
 					inst_name="${entry%%:*}"
 					inst_role="${entry##*:}"
-					# Validate values
 					case "$inst_role" in
 						MASTER|BACKUP|FAULT|UNKNOWN) ;;
 						*) inst_role="UNKNOWN" ;;
@@ -220,7 +204,6 @@ case "$1" in
 				done
 				json_close_array
 
-				# Calculate cluster health (after single-pass peer ping)
 				if [ "$ha_enabled" != "1" ]; then
 					cluster_state="STOPPED"
 				elif [ "$services_ok" -eq 0 ]; then
@@ -233,10 +216,8 @@ case "$1" in
 				json_add_string state "$cluster_state"
 
 
-				# Add service status for frontend display with required flag
 				json_add_object services
 
-				# keepalived - always required
 				json_add_object "keepalived"
 				json_add_boolean required 1
 				svc_pid=$(pgrep -o "keepalived" 2>/dev/null)
@@ -321,10 +302,8 @@ case "$1" in
 				;;
 
 			get_source_for_peer)
-				# Get recommended source address for reaching a peer
-				# Uses kernel route resolution, filters out VIPs
-
-				# Parse input
+				# Kernel route source for the peer; a VIP is replaced, when possible,
+				# by another address of the same family on the same device
 				json_load "$3"
 				json_get_var peer_address peer_address
 
@@ -336,7 +315,7 @@ case "$1" in
 					exit 1
 				fi
 
-				# Validate peer_address (prevent injection)
+				# Prevent injection
 				case "$peer_address" in
 					*[!0-9a-fA-F.:]*)
 						json_init
@@ -347,13 +326,11 @@ case "$1" in
 						;;
 				esac
 
-				# Detect address family (IPv6 contains colons)
 				case "$peer_address" in
 					*:*) addr_family="6" ;;
 					*)   addr_family="4" ;;
 				esac
 
-				# Get kernel's preferred source via ip route get
 				if [ "$addr_family" = "6" ]; then
 					route_output=$(ip -6 route get "$peer_address" 2>/dev/null)
 				else
@@ -380,7 +357,6 @@ case "$1" in
 					exit 1
 				fi
 
-				# Build VIP set from UCI
 				vip_list=""
 				for vip_section in $(uci show ha-cluster 2>/dev/null | grep "=vip$" | cut -d. -f2 | cut -d= -f1); do
 					vip_addr=$(uci -q get "ha-cluster.$vip_section.address")
@@ -389,7 +365,6 @@ case "$1" in
 					fi
 				done
 
-				# Check if kernel_src is a VIP
 				is_vip=0
 				for vip in $vip_list; do
 					if [ "$kernel_src" = "$vip" ]; then
@@ -401,8 +376,6 @@ case "$1" in
 				recommended_src="$kernel_src"
 
 				if [ "$is_vip" -eq 1 ]; then
-					# Find alternative address on same interface, same address family
-					# Get addresses on route_dev matching the peer's address family
 					alt_src=""
 					if [ "$addr_family" = "6" ]; then
 						addr_list=$(ip -6 -o addr show dev "$route_dev" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
@@ -410,11 +383,9 @@ case "$1" in
 						addr_list=$(ip -4 -o addr show dev "$route_dev" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
 					fi
 					for addr in $addr_list; do
-						# Skip loopback, link-local
 						case "$addr" in
 							127.*|::1|fe80:*) continue ;;
 						esac
-						# Skip VIPs
 						skip=0
 						for vip in $vip_list; do
 							if [ "$addr" = "$vip" ]; then
@@ -442,7 +413,6 @@ case "$1" in
 				;;
 
 			apply)
-				# Reload ha-cluster service
 				if /etc/init.d/ha-cluster reload >/dev/null 2>&1; then
 					json_init
 					json_add_boolean success 1
