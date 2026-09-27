@@ -54,7 +54,6 @@ return view.extend({
 		var filepath = hooksPath + '/' + filename;
 
 		return L.resolveDefault(fs.read(filepath), '').then(L.bind(function(content) {
-			// Use template if content is empty or just whitespace
 			var displayContent = (content && content.trim()) ? content : hookTemplate;
 
 			ui.showModal(_('Edit Hook: %s').format(filename), [
@@ -125,7 +124,6 @@ return view.extend({
 			return;
 		}
 
-		// Validate filename (alphanumeric, dash, underscore)
 		if (!/^[a-zA-Z0-9_-]+$/.test(filename)) {
 			ui.addNotification(null, E('p', _('Hook name must contain only letters, numbers, dashes, and underscores.')));
 			return;
@@ -182,7 +180,6 @@ return view.extend({
 		m = new form.Map('ha-cluster', _('High Availability - Advanced VRRP'),
 			_('Advanced VRRP instance tuning. VIPs and instance assignment are in General.'));
 
-		// === Global Settings ===
 		s = m.section(form.TypedSection, 'advanced', _('Global Settings'),
 			_('Keepalived global options and email notifications.'));
 		s.anonymous = true;
@@ -221,7 +218,6 @@ return view.extend({
 		o.depends('enable_notifications', '1');
 		o.placeholder = '192.168.1.100';
 
-		// === VRRP Instances ===
 		s = m.section(form.GridSection, 'vrrp_instance', _('VRRP Instances'),
 			_('The General page creates a single "main" instance for atomic failover of all VIPs. Add extra instances here for independent failover groups.'));
 		s.anonymous = false;
@@ -255,7 +251,6 @@ return view.extend({
 		};
 		o.modalonly = false;
 
-		// === General Tab ===
 		o = s.taboption('general', form.Value, 'vrid', _('VRID'),
 			_('Virtual Router ID (1-127). Must match on all cluster nodes. 128-255 reserved for auto-generated IPv6 instances.'));
 		o.datatype = 'range(1,127)';
@@ -296,7 +291,6 @@ return view.extend({
 			return ifname;
 		};
 
-		// === Timing Tab ===
 		o = s.taboption('timing', form.Value, 'advert_int', _('Advertisement Interval'),
 			_('VRRP advertisement frequency (seconds). Lower = faster failover. Default: 1.'));
 		o.datatype = 'float';
@@ -329,7 +323,6 @@ return view.extend({
 		o.optional = true;
 		o.modalonly = true;
 
-		// === Authentication Tab ===
 		o = s.taboption('auth', form.ListValue, 'auth_type', _('Authentication Type'),
 			_('PASS: basic (max 8 chars, cleartext). AH: cryptographic (requires kmod-ipsec).'));
 		o.value('none', _('None'));
@@ -353,7 +346,6 @@ return view.extend({
 		o.depends('auth_type', 'pass');
 		o.modalonly = true;
 
-		// === Tracking Tab ===
 		o = s.taboption('tracking', form.DynamicList, 'track_interface', _('Track Interfaces'),
 			_('Failover when tracked interface goes DOWN. Common: track WAN for internet failover.'));
 		netDevs.forEach(function(dev) {
@@ -374,8 +366,6 @@ return view.extend({
 		o.placeholder = _('Select script');
 		o.modalonly = true;
 
-		// === Unicast Tab ===
-		// Compute auto-derived unicast values from peer config
 		var peers = uci.sections('ha-cluster', 'peer');
 		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var autoSrcIp = '';
@@ -406,7 +396,6 @@ return view.extend({
 		o.placeholder = _('e.g., 192.168.1.2');
 		o.modalonly = true;
 
-		// === Health Checks (VRRP Scripts) ===
 		s = m.section(form.GridSection, 'script', _('Health Checks (VRRP Scripts)'),
 			_('Custom checks referenced by track_script. Examples: ping gateway, check DNS, verify VPN.'));
 		s.anonymous = false;
@@ -464,9 +453,7 @@ return view.extend({
 		o.optional = true;
 		o.modalonly = true;
 
-		// Render form.Map, then append hooks section
 		return m.render().then(L.bind(function(mapEl) {
-			// Build hooks section with grid
 			var hooksTable = E('table', { 'class': 'table cbi-section-table' }, [
 				E('tr', { 'class': 'tr table-titles' }, [
 					E('th', { 'class': 'th' }, _('Name')),

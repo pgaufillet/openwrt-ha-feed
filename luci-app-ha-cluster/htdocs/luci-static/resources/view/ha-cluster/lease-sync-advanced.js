@@ -36,7 +36,6 @@ return view.extend({
 		m = new form.Map('ha-cluster', _('High Availability - Advanced Lease Sync'),
 			_('Tuning for high-churn environments, unreliable networks, or troubleshooting.'));
 
-		// Tuning section
 		s = m.section(form.TypedSection, 'advanced', _('Lease-Sync Tuning'),
 			_('Default values work for most deployments.'));
 		s.anonymous = true;

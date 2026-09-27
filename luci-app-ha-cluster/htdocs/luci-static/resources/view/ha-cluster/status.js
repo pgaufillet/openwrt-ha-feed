@@ -84,7 +84,6 @@ return view.extend({
 		var pid = (serviceInfo && serviceInfo.pid) || '-';
 		var uptime = (serviceInfo && this.formatUptime(serviceInfo.uptime)) || '-';
 
-		// Determine status badge using LuCI standard classes
 		var statusBadge;
 		if (isRunning) {
 			statusBadge = E('span', { 'class': 'label success' }, _('Running'));
@@ -121,7 +120,6 @@ return view.extend({
 		var peers = status.peers || [];
 		var syncStatus = status.sync || {};
 
-		// Determine cluster state label class
 		var stateClass;
 		switch (clusterState) {
 			case 'HEALTHY':
@@ -137,7 +135,6 @@ return view.extend({
 				stateClass = 'label';
 		}
 
-		// Determine node role label class
 		var roleClass;
 		switch (nodeRole) {
 			case 'MASTER':
@@ -156,16 +153,13 @@ return view.extend({
 				roleClass = 'label';
 		}
 
-		// Build per-instance role rows (shown when multiple instances exist)
 		var instances = status.instances || {};
 		var instanceNames = Object.keys(instances);
 
 		return [
 			E('h3', {}, _('Cluster Status')),
 
-			// Two separate tables side-by-side for clear visual separation
 			E('div', { 'class': 'cbi-section', 'style': 'display: flex; gap: 2em;' }, [
-				// Table 1: Cluster Overview
 				E('div', { 'class': 'cbi-section-node', 'style': 'flex: 1;' }, [
 					E('table', { 'class': 'table' }, [
 						E('tr', { 'class': 'tr table-titles' }, [
@@ -201,7 +195,6 @@ return view.extend({
 						]);
 					}) : []))
 				]),
-				// Table 2: Last Synchronization
 				E('div', { 'class': 'cbi-section-node', 'style': 'flex: 1;' }, [
 					E('table', { 'class': 'table' }, [
 						E('tr', { 'class': 'tr table-titles' }, [
@@ -221,7 +214,6 @@ return view.extend({
 				])
 			]),
 
-			// Service Status
 			E('h3', {}, _('Service Status')),
 			E('div', { 'class': 'cbi-section cbi-section-node' }, [
 				E('table', { 'class': 'table' }, [
@@ -237,7 +229,6 @@ return view.extend({
 				])
 			]),
 
-			// Peer Status
 			E('h3', {}, _('Peer Status')),
 			E('div', { 'class': 'cbi-section cbi-section-node' }, [
 				peers.length > 0 ?
@@ -282,7 +273,6 @@ return view.extend({
 		view.appendChild(content);
 		dom.content(content, this.renderStatus(statusData, owsyncInstalled, leaseSyncInstalled));
 
-		// Set up auto-refresh polling
 		poll.add(L.bind(function() {
 			return this.loadData().then(L.bind(function(data) {
 				var statusContent = document.getElementById('ha_status_content');

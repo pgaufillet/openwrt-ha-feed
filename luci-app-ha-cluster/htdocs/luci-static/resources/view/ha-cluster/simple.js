@@ -41,28 +41,22 @@ return view.extend({
 		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var m, s, o;
 
-		// Build set of VIP addresses to exclude from source address selection
 		var vipAddresses = {};
 		uci.sections('ha-cluster', 'vip').forEach(function(vip) {
 			if (vip.address)
 				vipAddresses[vip.address] = true;
 		});
 
-		// Filter function for valid source addresses
 		var isValidSourceAddress = function(addr) {
-			// Exclude loopback
 			if (addr.startsWith('127.') || addr === '::1')
 				return false;
-			// Exclude link-local IPv6
 			if (addr.startsWith('fe80:'))
 				return false;
-			// Exclude VIPs
 			if (vipAddresses[addr])
 				return false;
 			return true;
 		};
 
-		// Helper to detect address family
 		var isIPv6 = function(addr) {
 			return addr && addr.indexOf(':') !== -1;
 		};
@@ -111,7 +105,6 @@ return view.extend({
 		m = new form.Map('ha-cluster', _('High Availability - General'),
 			_('Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.'));
 
-		// Global Settings Section
 		s = m.section(form.NamedSection, 'config', 'global', _('Cluster Configuration'));
 		s.anonymous = false;
 		s.addremove = false;
@@ -135,7 +128,6 @@ return view.extend({
 			return this.super('cfgvalue', arguments) || this.default;
 		};
 
-		// Peer Configuration
 		var vrrpOnlyHelp = _('Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync.') + ' ' +
 			(transport === 'unicast'
 				? _('In unicast mode keepalived still sends it VRRP adverts.')
@@ -150,11 +142,8 @@ return view.extend({
 		s.addremove = true;
 		s.sortable = true;
 
-		// Custom handleAdd following DDNS pattern:
-		// 1. Show modal with separate form.Map (isolated from main form)
-		// 2. On Add: save main form first (preserves pending changes like node_priority)
-		// 3. Then add new peer to UCI
-		// 4. Then refresh main form (now includes saved changes + new peer)
+		// Modal with its own Map (DDNS pattern); Add saves the main form first
+		// so its pending changes survive the refresh
 		s.handleAdd = function(ev) {
 			var _this = this;
 			var mainMap = this.map;
@@ -183,7 +172,6 @@ return view.extend({
 				_('Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.'));
 			peerSource.optional = true;
 			peerSource.placeholder = _('unspecified');
-			// Populate with all valid source addresses
 			interfaces.forEach(function(iface) {
 				(iface['ipv4-address'] || []).forEach(function(addr) {
 					if (isValidSourceAddress(addr.address))
@@ -225,8 +213,6 @@ return view.extend({
 									return;
 								}
 
-								// Save main form first (preserves all pending changes)
-								// Then add new peer, then refresh
 								mainMap.save(function() {
 									uci.add('ha-cluster', 'peer');
 									var sections = uci.sections('ha-cluster', 'peer');
@@ -283,7 +269,6 @@ return view.extend({
 		addrOpt.modalonly = true;
 		var srcOpt = s.option(form.ListValue, 'source_address', _('Source Address'),
 			_('Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.'));
-		// Populate with all valid source addresses
 		interfaces.forEach(function(iface) {
 			(iface['ipv4-address'] || []).forEach(function(addr) {
 				if (isValidSourceAddress(addr.address))
@@ -298,8 +283,6 @@ return view.extend({
 		srcOpt.placeholder = _('unspecified');
 		srcOpt.modalonly = true;
 
-		// Cross-field validation for address family match
-		// Using this.map.lookupOption() pattern from VIP validation
 		addrOpt.validate = function(section_id, value) {
 			var src = this.map.lookupOption('source_address', section_id);
 			var srcval = src ? src[0].formvalue(section_id) : '';
@@ -327,7 +310,6 @@ return view.extend({
 		o = s.option(form.Flag, 'vrrp_only', _('VRRP only'), vrrpOnlyHelp);
 		o.modalonly = true;
 
-		// Virtual IP Configuration
 		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
 			_('All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups.') + ' ' +
 			_('Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.'));
@@ -336,7 +318,7 @@ return view.extend({
 		s.sortable = true;
 		s.addbtntitle = _('Add VIP...');
 
-		// Garbage collection: remove orphaned vrrp_instance when last VIP is deleted
+		// Drop the vrrp_instance once its last VIP is removed
 		s.handleRemove = function(section_id, ev) {
 			var instName = uci.get('ha-cluster', section_id, 'vrrp_instance') || '';
 
@@ -407,7 +389,6 @@ return view.extend({
 		o = s.option(form.ListValue, 'interface', _('Interface'));
 		o.rmempty = false;
 		o.modalonly = true;
-		// Populate with available interfaces
 		if (interfaces && interfaces.length) {
 			var seen = {};
 			interfaces.forEach(function(iface) {
@@ -430,14 +411,12 @@ return view.extend({
 		o.write = function(section_id, value) {
 			uci.set('ha-cluster', section_id, 'interface', value);
 
-			// Ensure 'main' instance exists; attach VIP to it
 			var instName = 'main';
 			var exists = uci.sections('ha-cluster', 'vrrp_instance').some(function(inst) {
 				return inst['.name'] === instName;
 			});
 			if (!exists) {
 				var globalPriority = uci.get('ha-cluster', 'config', 'node_priority') || '100';
-				// Default advertisement interface: 'lan' if available, else blank
 				var defaultIface = '';
 				var ifaceList = interfaces || [];
 				for (var i = 0; i < ifaceList.length; i++) {
@@ -505,13 +484,9 @@ return view.extend({
 				uci.set('ha-cluster', section_id, 'enabled', value);
 		};
 
-		// Synchronization: key, files (owsync), leases (lease-sync)
 		s = m.section(form.NamedSection, 'config', 'global', _('Synchronization'),
 			_('Keeps configuration files and DHCP leases identical on the cluster nodes. These settings must be the same on every node.'));
 
-		// Encryption settings first
-		// Setting a key enables AES-256-GCM for owsync and lease-sync; leaving
-		// it empty runs sync in plaintext.
 		var encryption_key_option = s.option(form.Value, 'encryption_key', _('Encryption Key'),
 			_('256-bit AES key (64 hexadecimal characters), used for both configuration and lease sync. Must be identical on all nodes. Leave empty to sync in plaintext.'));
 		encryption_key_option.password = true;
@@ -523,23 +498,19 @@ return view.extend({
 		o.inputtitle = _('Generate New Key');
 		o.inputstyle = 'action';
 		o.onclick = function(ev, section_id) {
-			// Show modal
 			ui.showModal(_('Generating encryption key...'), [
 				E('p', { 'class': 'spinning' }, _('Generating secure random key...'))
 			], 'wait');
 
-			// Call RPC method
 			L.resolveDefault(callGenerateKey(), {}).then(function(result) {
 				ui.hideModal();
 
 				if (result && result.success && result.key) {
-					// Set the encryption key field via LuCI option API
 					var uiEl = encryption_key_option.getUIElement(section_id);
 					if (uiEl) {
 						uiEl.setValue(result.key);
 					}
 
-					// Show success modal with copy instructions
 					ui.showModal(_('Encryption Key Generated'), [
 						E('p', {}, _('Encryption key generated successfully!')),
 						E('p', { 'class': 'alert-message warning' }, [
@@ -569,7 +540,6 @@ return view.extend({
 						])
 					]);
 
-					// Try to copy to clipboard if supported
 					if (navigator.clipboard && navigator.clipboard.writeText) {
 						navigator.clipboard.writeText(result.key).then(function() {
 							ui.addNotification(null, E('p', {}, _('Key copied to clipboard')), 'info');

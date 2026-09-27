@@ -65,7 +65,6 @@ var ChipListValue = form.Value.extend({
 				var val = input.value.trim();
 				if (!val) return;
 
-				// Check for duplicates
 				var existing = chipsContainer.querySelectorAll('[data-value]');
 				for (var i = 0; i < existing.length; i++) {
 					if (existing[i].getAttribute('data-value') === val) {
@@ -152,7 +151,6 @@ return view.extend({
 		m = new form.Map('ha-cluster', _('High Availability - Advanced Config Sync'),
 			_('Custom sync groups for services beyond General settings (e.g., VPN, mwan3).'));
 
-		// === Global Settings ===
 		s = m.section(form.TypedSection, 'advanced', _('Global Settings'),
 			_('owsync global options.'));
 		s.anonymous = true;
@@ -175,7 +173,6 @@ return view.extend({
 			return this.super('cfgvalue', arguments) || this.default;
 		};
 
-		// === Additional Sync Groups ===
 		s = m.section(form.GridSection, 'sync_group', _('Additional Sync Groups'),
 			_('Click Edit to configure files.'));
 		s.anonymous = false;
@@ -183,7 +180,7 @@ return view.extend({
 		s.sortable = true;
 		s.nodescriptions = true;
 
-		// Filter out base services - they are managed in General
+		// Base services are managed in General
 		s.filter = function(section_id) {
 			return baseServices.indexOf(section_id) === -1;
 		};
@@ -226,7 +223,6 @@ return view.extend({
 		o.placeholder = 'openvpn or /etc/openvpn/keys';
 		o.modalonly = true;
 
-		// === Exclusions ===
 		s = m.section(form.TypedSection, 'exclude', _('Exclusions'),
 			_('Files never synced; exclusions take precedence over sync groups. Default: network, system, owsync, ha-cluster, wireless.'));
 		s.anonymous = true;
