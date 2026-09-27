@@ -89,10 +89,10 @@ return view.extend({
 		}
 
 		return E('tr', { 'class': 'tr' }, [
-			E('td', { 'class': 'td left' }, name),
-			E('td', { 'class': 'td left' }, statusBadge),
-			E('td', { 'class': 'td left' }, String(pid)),
-			E('td', { 'class': 'td left' }, uptime)
+			E('td', { 'class': 'td left', 'data-title': _('Service') }, name),
+			E('td', { 'class': 'td left', 'data-title': _('Status') }, statusBadge),
+			E('td', { 'class': 'td left', 'data-title': _('PID') }, String(pid)),
+			E('td', { 'class': 'td left', 'data-title': _('Uptime') }, uptime)
 		]);
 	},
 
@@ -234,14 +234,14 @@ return view.extend({
 						])
 					].concat(peers.map(function(peer) {
 						return E('tr', { 'class': 'tr' }, [
-							E('td', { 'class': 'td left' }, peer.name || '-'),
-							E('td', { 'class': 'td left' }, peer.address || '-'),
-							E('td', { 'class': 'td left' },
+							E('td', { 'class': 'td left', 'data-title': _('Peer Name') }, peer.name || '-'),
+							E('td', { 'class': 'td left', 'data-title': _('Address') }, peer.address || '-'),
+							E('td', { 'class': 'td left', 'data-title': _('State') },
 								E('span', {
 									'class': peer.online ? 'label success' : 'label important'
 								}, peer.online ? _('Online') : _('Offline'))
 							),
-							E('td', { 'class': 'td left' }, peer.last_seen || '-')
+							E('td', { 'class': 'td left', 'data-title': _('Last Seen') }, peer.last_seen || '-')
 						]);
 					}))) :
 					E('div', { 'class': 'alert-message warning' }, _('No peers configured'))
