@@ -180,6 +180,8 @@ return view.extend({
 
 			var peerSource = s2.option(form.ListValue, 'source_address', _('Source Address'),
 				_('Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.'));
+			peerSource.optional = true;
+			peerSource.placeholder = _('unspecified');
 			// Populate with all valid source addresses
 			interfaces.forEach(function(iface) {
 				(iface['ipv4-address'] || []).forEach(function(addr) {
@@ -217,15 +219,7 @@ return view.extend({
 									return;
 								}
 
-								if (!sourceVal) {
-									ui.addNotification(null, E('p', _('Please select a source address')), 'warning');
-									return;
-								}
-
-								// Validate address family match
-								var peerIsV6 = isIPv6(addrVal);
-								var sourceIsV6 = isIPv6(sourceVal);
-								if (peerIsV6 !== sourceIsV6) {
+								if (sourceVal && isIPv6(addrVal) !== isIPv6(sourceVal)) {
 									ui.addNotification(null, E('p', _('Address family mismatch: peer and source must both be IPv4 or both be IPv6')), 'warning');
 									return;
 								}
@@ -238,7 +232,8 @@ return view.extend({
 									var newSection = sections[sections.length - 1]['.name'];
 									uci.set('ha-cluster', newSection, 'name', nameVal);
 									uci.set('ha-cluster', newSection, 'address', addrVal);
-									uci.set('ha-cluster', newSection, 'source_address', sourceVal);
+									if (sourceVal)
+										uci.set('ha-cluster', newSection, 'source_address', sourceVal);
 									if (vrrpOnlyVal === '1')
 										uci.set('ha-cluster', newSection, 'vrrp_only', '1');
 								}).then(function() {
@@ -298,7 +293,8 @@ return view.extend({
 					srcOpt.value(addr.address, addr.address + ' (' + iface.interface + ')');
 			});
 		});
-		srcOpt.rmempty = false;
+		srcOpt.optional = true;
+		srcOpt.placeholder = _('unspecified');
 		srcOpt.modalonly = true;
 
 		// Cross-field validation for address family match
