@@ -7,15 +7,20 @@
 # /etc/config/ha-cluster, and checks for each configuration:
 #
 #   - apk ran the new ha-cluster post-upgrade script, which consumed the
-#     uci-defaults migration
+#     uci-defaults migration, kept ha-cluster enabled and started it once
 #   - /etc/config/ha-cluster equals the T24 migration expected output of
 #     the same case (edited file kept and migrated; the unedited shipped
 #     file replaced by the new one) and holds no old-model name
 #   - the ha-cluster procd instances follow the new rules, their configs
 #     are generated, keepalived (left running by the upgrade) holds the
 #     VIP with an unchanged config, and a restart changes nothing
-#   - adding the same packages again, and running the post-upgrade script
-#     again as a reinstall would, leave the config and daemons unchanged
+#   - adding the same packages again, and reinstalling ha-cluster with
+#     apk, leave the config, daemons and boot state unchanged; the
+#     reinstall starts ha-cluster once
+#
+# A last case disables ha-cluster and the standalone lease-sync and stops
+# ha-cluster before the upgrade: the upgrade and a reinstall of both keep
+# them disabled and the configs unchanged.
 #
 # Each case runs in a throwaway node container with procd, without a
 # network: veth pairs stand for the lan and backend links, so keepalived
@@ -90,6 +95,39 @@ instances() {
             [ "$r" = "true" ] && out="$out $i"
         done
         echo "${out# }" | grep . || echo -'
+}
+
+# Boot state of an init script: enabled or disabled
+boot_state() {
+    node_sh "ls /etc/rc.d/S[0-9][0-9]$1 >/dev/null 2>&1 && echo enabled || echo disabled"
+}
+
+# Syslog mark before a package operation
+mark_log() {
+    node_sh "logger -t t26 'mark: $1'"
+}
+
+# ha-cluster starts logged since a mark: start_service logs one line per
+# run with the cluster enabled, while procd keeps unchanged instances
+# running, so their PIDs cannot tell
+starts_since() {
+    node_sh "logread | sed -n '/t26: mark: $1\$/,\$p' | grep -c 'ha-cluster: Starting HA cluster\$'"
+}
+
+# Usage: apk_reinstall <package>...
+# OpenWrt's apk cannot index the package files, so apk fix takes them
+# from the cache, named after the installed package identity (found in
+# the names of its stored scripts)
+apk_reinstall() {
+    node_sh "set -- $*"'
+        mkdir -p /etc/apk/cache || exit 1
+        for pkg; do
+            id=$(tar -tzf /lib/apk/db/scripts.tar.gz |
+                sed -n "s/^$pkg-\([0-9][^X]*\)\.X1\([0-9a-f]\{8\}\).*\.post-install$/\1.\2/p")
+            [ -n "$id" ] || { echo "$pkg: installed package identity not found"; exit 1; }
+            cp /upgrade/$pkg-[0-9]*.apk "/etc/apk/cache/$pkg-$id.apk" || exit 1
+        done
+        apk fix --no-network --repositories-file /dev/null --allow-untrusted --reinstall "$@"'
 }
 
 # Usage: wait_instances <expected> <timeout>
@@ -276,6 +314,7 @@ test_case() {
     kpid=$(node_sh 'pgrep -o keepalived')
 
     # The upgrade
+    mark_log upgrade
     if node_sh 'apk add --no-network --allow-untrusted \
             /upgrade/ha-cluster-[0-9]*.apk /upgrade/luci-app-ha-cluster-[0-9]*.apk' \
             > "$log-apk.log" 2>&1; then
@@ -298,6 +337,21 @@ test_case() {
     else
         fail "$case_name: /etc/uci-defaults/$MIGRATION left after the upgrade"
         rc=1
+    fi
+    if [ "$(boot_state ha-cluster)" = enabled ]; then
+        pass "$case_name: ha-cluster still enabled after the upgrade"
+    else
+        fail "$case_name: the upgrade disabled ha-cluster"
+        rc=1
+    fi
+    if [ "$after" != "-" ]; then
+        actual=$(starts_since upgrade)
+        if [ "$actual" = 1 ]; then
+            pass "$case_name: the upgrade started ha-cluster once"
+        else
+            fail "$case_name: the upgrade started ha-cluster $actual times, expected once"
+            rc=1
+        fi
     fi
 
     # Config
@@ -399,29 +453,128 @@ test_case() {
         rc=1
     fi
 
-    # Reinstall: OpenWrt's apk has no mkndx, so no repository to reinstall
-    # from; restore the package's migration file and run its stored
-    # post-upgrade script, as apk does on a reinstall
-    node_sh "
-        mkdir -p /tmp/reinstall && cd /tmp/reinstall &&
-        apk extract --allow-untrusted /upgrade/ha-cluster-[0-9]*.apk &&
-        cp etc/uci-defaults/$MIGRATION /etc/uci-defaults/ &&
-        tar -xzOf /lib/apk/db/scripts.tar.gz \$(tar -tzf /lib/apk/db/scripts.tar.gz |
-            grep '^ha-cluster-[0-9].*\.post-upgrade\$') > post-upgrade &&
-        [ -s post-upgrade ] && sh post-upgrade" > "$log-reinstall.log" 2>&1
+    # Reinstall: apk restores the migration file and runs post-upgrade
+    mark_log reinstall
+    apk_reinstall ha-cluster > "$log-reinstall.log" 2>&1
     wait_instances "$after" 20
     state2=$(settled_state)
-    if [ "$(echo "$state1" | sed 1d)" = "$(echo "$state2" | sed 1d)" ] &&
+    if grep -q "ha-cluster-.*post-upgrade" "$log-reinstall.log" &&
+       [ "$(echo "$state1" | sed 1d)" = "$(echo "$state2" | sed 1d)" ] &&
        node_sh "[ ! -e /etc/uci-defaults/$MIGRATION ]" &&
        [ "$(instances)" = "$after" ]; then
-        pass "$case_name: running the upgrade scripts again changes nothing"
+        pass "$case_name: reinstalling ha-cluster changes nothing"
     else
-        fail "$case_name: running the upgrade scripts again changed the node"
+        fail "$case_name: reinstalling ha-cluster changed the node"
         cat "$log-reinstall.log"
         echo "$state2" > "$log-state-reinstall"
         echo "$state1" | diff - "$log-state-reinstall"
         rc=1
     fi
+    if [ "$(boot_state ha-cluster)" = enabled ]; then
+        pass "$case_name: ha-cluster still enabled after the reinstall"
+    else
+        fail "$case_name: the reinstall disabled ha-cluster"
+        rc=1
+    fi
+    if [ "$after" != "-" ]; then
+        actual=$(starts_since reinstall)
+        if [ "$actual" = 1 ]; then
+            pass "$case_name: the reinstall started ha-cluster once"
+        else
+            fail "$case_name: the reinstall started ha-cluster $actual times, expected once"
+            rc=1
+        fi
+    fi
+
+    node_sh 'logread' > "$log-syslog.log" 2>&1
+    remove_node
+    return $rc
+}
+
+# The admin disabled ha-cluster and the standalone lease-sync, and
+# stopped ha-cluster: the upgrade and a reinstall keep both disabled.
+# default_postinst starts the packages' services on an upgrade whatever
+# their boot state: the starts are reported, not checked.
+test_disabled() {
+    local case_name="disabled"
+    local t24_case="13-production-node"
+    local instances_on="keepalived owsync lease-sync"
+    local rc=0
+    local log="$LOG_DIR/$case_name"
+    local expected actual
+
+    subheader "Upgrade: ha-cluster disabled"
+
+    if ! start_old_node "$case_name" "$t24_case" || ! wait_instances "$instances_on" 20; then
+        fail "$case_name: old node did not start"
+        return 1
+    fi
+    node_sh '/etc/init.d/ha-cluster disable && /etc/init.d/ha-cluster stop &&
+        /etc/init.d/lease-sync disable' >/dev/null 2>&1
+    if wait_instances - 20 && [ "$(boot_state ha-cluster)" = disabled ] &&
+       [ "$(boot_state lease-sync)" = disabled ]; then
+        pass "$case_name: ha-cluster and lease-sync disabled, ha-cluster stopped"
+    else
+        fail "$case_name: could not disable ha-cluster and lease-sync"
+        return 1
+    fi
+
+    mark_log upgrade
+    if node_sh 'apk add --no-network --allow-untrusted \
+            /upgrade/ha-cluster-[0-9]*.apk /upgrade/luci-app-ha-cluster-[0-9]*.apk' \
+            > "$log-apk.log" 2>&1 &&
+       grep -q "ha-cluster-.*post-upgrade" "$log-apk.log"; then
+        pass "$case_name: apk upgraded ha-cluster"
+    else
+        fail "$case_name: apk did not upgrade ha-cluster"
+        cat "$log-apk.log"
+        return 1
+    fi
+    if [ "$(boot_state ha-cluster)" = disabled ]; then
+        pass "$case_name: ha-cluster still disabled after the upgrade"
+    else
+        fail "$case_name: the upgrade enabled ha-cluster"
+        rc=1
+    fi
+    t24_expected "$t24_case" > "$log-expected.uci"
+    node_sh 'cat /etc/config/ha-cluster' > "$log-after.uci"
+    if diff -u "$log-expected.uci" "$log-after.uci" > "$log-config.diff"; then
+        pass "$case_name: config migrated as on an enabled node"
+    else
+        fail "$case_name: config differs from the T24 migration expected output"
+        cat "$log-config.diff"
+        rc=1
+    fi
+    info "$case_name: the upgrade started ha-cluster $(starts_since upgrade) time(s), running: $(instances)"
+
+    # Back to the admin's state before the reinstall
+    node_sh '/etc/init.d/ha-cluster disable && /etc/init.d/ha-cluster stop' >/dev/null 2>&1
+    wait_instances - 20
+    expected=$(node_sh 'md5sum /etc/config/ha-cluster /etc/config/lease-sync')
+    mark_log reinstall
+    apk_reinstall ha-cluster lease-sync > "$log-reinstall.log" 2>&1
+    if grep -q "ha-cluster-.*post-upgrade" "$log-reinstall.log" &&
+       grep -q "lease-sync-.*post-upgrade" "$log-reinstall.log"; then
+        pass "$case_name: apk reinstalled ha-cluster and lease-sync"
+    else
+        fail "$case_name: apk did not reinstall ha-cluster and lease-sync"
+        cat "$log-reinstall.log"
+        rc=1
+    fi
+    actual="ha-cluster $(boot_state ha-cluster), lease-sync $(boot_state lease-sync)"
+    if [ "$actual" = "ha-cluster disabled, lease-sync disabled" ]; then
+        pass "$case_name: ha-cluster and lease-sync still disabled after the reinstall"
+    else
+        fail "$case_name: $actual after the reinstall"
+        rc=1
+    fi
+    if [ "$(node_sh 'md5sum /etc/config/ha-cluster /etc/config/lease-sync')" = "$expected" ]; then
+        pass "$case_name: the reinstall keeps the configs"
+    else
+        fail "$case_name: the reinstall changed the configs"
+        rc=1
+    fi
+    info "$case_name: the reinstall started ha-cluster $(starts_since reinstall) time(s), running: $(instances)"
 
     node_sh 'logread' > "$log-syslog.log" 2>&1
     remove_node
@@ -454,6 +607,7 @@ main() {
         after=${line#*|}
         test_case "$case_name" "$t24_case" "$before" "$after" || result=1
     done
+    test_disabled || result=1
 
     return $result
 }

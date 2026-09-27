@@ -484,7 +484,7 @@ CHAR_UPDATE=1 sh scenarios/25-luci.sh
 
 | ID | Scenario | Validates |
 |----|----------|-----------|
-| T26 | Package Upgrade | `apk` upgrade from the packages before the sync model change migrates and keeps the config, restarts the daemons by the new rules, and is idempotent |
+| T26 | Package Upgrade | `apk` upgrade from the packages before the sync model change migrates and keeps the config, restarts the daemons by the new rules, keeps the boot state, and is idempotent |
 
 T26 builds `ha-cluster-node-old` from `Containerfile.node` with the old
 `ha-cluster` and `luci-app-ha-cluster` packages in place of the new ones,
@@ -497,7 +497,9 @@ packages from `packages/`. It checks that:
 - `apk` ran the new post-upgrade script, which consumed the
   `uci-defaults` migration (`default_postinst` in `/lib/functions.sh`
   sources the package's `/etc/uci-defaults` files when not installing to
-  an image root);
+  an image root), kept ha-cluster enabled and started it once (one
+  `Starting HA cluster` syslog line: procd keeps unchanged instances
+  running, so their PIDs cannot tell a second start);
 - the config equals the T24 expected output of the same case, with no
   old-model section or option left. An unedited shipped file is replaced
   by the new one (T24 case `10`); an edited one is kept and migrated, and
@@ -506,10 +508,19 @@ packages from `packages/`. It checks that:
   the new rules, keepalived holds the VIP, and a restart changes nothing.
   The upgrade restarts owsync and lease-sync on a config change but
   leaves keepalived running, so its generated config must not change;
-- adding the same packages again runs nothing, and running the stored
-  post-upgrade script again with the migration file restored (what a
-  reinstall does; OpenWrt's `apk` cannot build the index a real
-  `apk fix -r` would need) changes neither the config nor the daemons.
+- adding the same packages again runs nothing, and `apk fix --reinstall
+  ha-cluster` (which restores the migration file and runs post-upgrade)
+  changes neither the config, the daemons nor the boot state, and starts
+  ha-cluster once. OpenWrt's `apk` cannot index the package files, so the
+  test puts the installed one in `/etc/apk/cache` under the name `apk fix`
+  looks for.
+
+A last case uses the T24 `13-production-node` config with ha-cluster and
+the standalone lease-sync disabled and ha-cluster stopped: the upgrade and
+a reinstall of ha-cluster and lease-sync keep both disabled and the
+configs unchanged. `default_postinst` starts a package's init scripts on
+an upgrade whatever their boot state, so this case reports the starts
+without checking them.
 
 The old packages are built from the last commit before the model change
 with the Docker SDK flow (about 30 minutes), from the feed root, into
