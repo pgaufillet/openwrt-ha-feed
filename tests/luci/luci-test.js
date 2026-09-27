@@ -426,17 +426,15 @@ const ACTIONS = [
 		await saveMain(p);
 	}],
 	['general-sync-options', 'full', 'simple', async p => {
-		await setCheckbox(p, field('config', '_dhcp_leases'), false);
-		await select(p, field('config', 'sync_method'), 'none');
-		await setCheckbox(p, field('config', '_dhcp_config'), false);
-		await setCheckbox(p, field('config', '_firewall_config'), false);
+		await setCheckbox(p, field('config', 'lease_sync'), false);
+		await setCheckbox(p, field('config', '_group_dhcp'), false);
+		await setCheckbox(p, field('config', '_group_firewall'), false);
 		await saveMain(p);
 	}],
 	['general-sync-options-on', 'sync-off', 'simple', async p => {
-		await setCheckbox(p, field('config', '_dhcp_leases'), true);
-		await select(p, field('config', 'sync_method'), 'owsync');
-		await setCheckbox(p, field('config', '_dhcp_config'), true);
-		await setCheckbox(p, field('config', '_firewall_config'), true);
+		await setCheckbox(p, field('config', 'lease_sync'), true);
+		await setCheckbox(p, field('config', '_group_dhcp'), true);
+		await setCheckbox(p, field('config', '_group_firewall'), true);
 		await saveMain(p);
 	}],
 	['vrrp-instance-add', 'full', 'keepalived-advanced', async p => {

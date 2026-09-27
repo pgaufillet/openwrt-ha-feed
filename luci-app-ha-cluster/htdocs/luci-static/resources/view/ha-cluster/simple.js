@@ -28,7 +28,8 @@ return view.extend({
 			uci.load('ha-cluster'),
 			callGetInterfaces(),
 			network.getDevices(),
-			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null)
+			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null),
+			L.resolveDefault(fs.stat('/usr/bin/owsync'), null)
 		]);
 	},
 
@@ -36,6 +37,7 @@ return view.extend({
 		var interfaces = data[1] || [];
 		var netDevs = data[2] || [];
 		var leaseSyncInstalled = data[3] != null;
+		var owsyncInstalled = data[4] != null;
 		var m, s, o;
 
 		// Build set of VIP addresses to exclude from source address selection
@@ -70,6 +72,27 @@ return view.extend({
 			for (var i = 0; i < ifname.length; i++)
 				hash = ((hash << 5) + hash + ifname.charCodeAt(i)) & 0xffffffff;
 			return ((hash >>> 0) % 127) + 1;
+		};
+
+		// UCI boolean as read by config_get_bool
+		var getBool = function(value, dflt) {
+			if (['1', 'on', 'true', 'yes', 'enabled'].indexOf(value) !== -1)
+				return true;
+			if (['0', 'off', 'false', 'no', 'disabled'].indexOf(value) !== -1)
+				return false;
+			return dflt;
+		};
+
+		var groupEnabled = function(group) {
+			return getBool(group.enabled, true);
+		};
+
+		var installHint = function(text) {
+			return E('div', { 'class': 'alert-message' }, [
+				E('p', {}, text),
+				E('p', {}, E('a', { 'href': '/cgi-bin/luci/admin/system/package-manager' },
+					_('Go to Software page') + ' \u2192'))
+			]);
 		};
 
 		var ifaceIconUrl = function(ifname) {
@@ -471,19 +494,19 @@ return view.extend({
 		o.rmempty = false;
 		o.modalonly = true;
 
-		// Configuration Synchronization (files + method)
-		s = m.section(form.NamedSection, 'config', 'global', _('Configuration Synchronization'),
-			_('Select which /etc/config files to synchronize and how synchronization is performed.'));
+		// Synchronization: key, files (owsync), leases (lease-sync)
+		s = m.section(form.NamedSection, 'config', 'global', _('Synchronization'),
+			_('Keeps configuration files and DHCP leases identical on the cluster nodes. These settings must be the same on every node.'));
 
 		// Encryption settings first
 		// Setting a key enables AES-256-GCM for owsync and lease-sync; leaving
 		// it empty runs sync in plaintext.
 		var encryption_key_option = s.option(form.Value, 'encryption_key', _('Encryption Key'),
-			_('256-bit AES encryption key (64 hexadecimal characters) for configuration sync (owsync) and DHCP lease sync (lease-sync). Must be identical on all cluster nodes. Leave empty to disable encryption.'));
+			_('256-bit AES key (64 hexadecimal characters), used for both configuration and lease sync. Must be identical on all nodes. Leave empty to sync in plaintext.'));
 		encryption_key_option.password = true;
 		encryption_key_option.datatype = 'and(hexstring,rangelength(64,64))';
 		encryption_key_option.rmempty = true;
-		encryption_key_option.placeholder = 'Click "Generate New Key" button below to create a secure random key';
+		encryption_key_option.placeholder = _('Click "Generate New Key" below to create a secure random key');
 
 		o = s.option(form.Button, '_generate_key', _('Generate New Key'));
 		o.inputtitle = _('Generate New Key');
@@ -557,49 +580,84 @@ return view.extend({
 			});
 		};
 
-		// DHCP Lease Sync - maps to service.dhcp.sync_leases
-		if (leaseSyncInstalled) {
-			o = s.option(form.Flag, '_dhcp_leases', _('Enable Real-time DHCP Lease Sync'),
-				_('Synchronize DHCP leases in real-time using the lease-sync daemon for seamless client failover'));
-			o.default = '1';
-			o.rmempty = false;
-			o.cfgvalue = function() { return uci.get('ha-cluster', 'dhcp', 'sync_leases'); };
-			o.write = function(section_id, value) { uci.set('ha-cluster', 'dhcp', 'sync_leases', value); };
-			o.remove = function() { uci.set('ha-cluster', 'dhcp', 'sync_leases', '0'); };
+		var groups = uci.sections('ha-cluster', 'sync_group');
+
+		s = m.section(form.NamedSection, 'config', 'global', _('Configuration Files'));
+
+		if (owsyncInstalled) {
+			// Maps to sync_group.<name>.enabled; the group is created when first enabled
+			var groupFlag = function(name, title, description) {
+				var o = s.option(form.Flag, '_group_' + name, title, description);
+				o.rmempty = false;
+				o.cfgvalue = function() {
+					var group = uci.get('ha-cluster', name);
+					return (group && groupEnabled(group)) ? '1' : '0';
+				};
+				o.write = function(section_id, value) {
+					if (!uci.get('ha-cluster', name)) {
+						if (value === '1') {
+							uci.add('ha-cluster', 'sync_group', name);
+							uci.set('ha-cluster', name, 'enabled', '1');
+							uci.set('ha-cluster', name, 'config_files', [ name ]);
+						}
+					} else if (this.cfgvalue(section_id) !== value) {
+						uci.set('ha-cluster', name, 'enabled', value);
+					}
+				};
+				return o;
+			};
+
+			groupFlag('dhcp', _('DHCP and DNS'),
+				_('<code>/etc/config/dhcp</code>: address pools, static leases, DNS settings.'));
+			groupFlag('firewall', _('Firewall'),
+				_('<code>/etc/config/firewall</code>: zones, rules, port forwards. Review the rules before enabling: they apply to every node.'));
+
+			var others = groups.filter(function(group) {
+				return group['.name'] !== 'dhcp' && group['.name'] !== 'firewall';
+			});
+			o = s.option(form.DummyValue, '_group_others', _('Other files'));
+			o.renderWidget = function() {
+				var enabled = others.filter(groupEnabled).length;
+				return E('div', {}, [
+					E('em', {}, others.length
+						? N_(others.length, '%d group', '%d groups').format(others.length) + ' (' + _('%d enabled').format(enabled) + ')'
+						: _('none')),
+					' ',
+					E('a', { 'href': L.url('admin/services/ha-cluster/owsync-advanced') }, _('Advanced Config Sync') + ' \u2192')
+				]);
+			};
 		} else {
-			o = s.option(form.DummyValue, '_dhcp_leases', _('Real-time DHCP Lease Sync'));
-			o.rawhtml = true;
-			o.cfgvalue = function() {
-				return '<em>' + _('Install the <code>lease-sync</code> and <code>dnsmasq-ha</code> packages to enable real-time DHCP lease synchronization.') + '</em>' +
-					' <a href="/cgi-bin/luci/admin/system/package-manager">' + _('Go to Software page') + ' \u2192</a>';
+			var enabledGroups = groups.filter(groupEnabled).length;
+			o = s.option(form.DummyValue, '_owsync_missing');
+			o.renderWidget = function() {
+				return installHint(_('owsync is not installed. Install the <code>owsync</code> package to synchronize configuration files.') +
+					(enabledGroups ? ' ' + N_(enabledGroups,
+						'The enabled sync group in the configuration will apply once it is installed.',
+						'The %d enabled sync groups in the configuration will apply once it is installed.').format(enabledGroups) : ''));
 			};
 		}
 
-		// Sync method selection
-		o = s.option(form.ListValue, 'sync_method', _('Sync Method'),
-			_('owsync: real-time file synchronization. none: disable file synchronization.'));
-		o.value('owsync', _('owsync'));
-		o.value('none', _('none'));
-		o.default = 'owsync';
-		o.rmempty = false;
+		s = m.section(form.NamedSection, 'config', 'global', _('DHCP Leases'));
 
-		// Sync DHCP Configuration - maps to service.dhcp.enabled
-		o = s.option(form.Flag, '_dhcp_config', _('Sync DHCP Configuration'),
-			_('Synchronize /etc/config/dhcp (address pools, static leases, DNS settings)'));
-		o.default = '1';
-		o.rmempty = false;
-		o.cfgvalue = function() { return uci.get('ha-cluster', 'dhcp', 'enabled'); };
-		o.write = function(section_id, value) { uci.set('ha-cluster', 'dhcp', 'enabled', value); };
-		o.remove = function() { uci.set('ha-cluster', 'dhcp', 'enabled', '0'); };
-
-		// Sync Firewall - maps to service.firewall.enabled
-		o = s.option(form.Flag, '_firewall_config', _('Sync Firewall Rules'),
-			_('Synchronize /etc/config/firewall (port forwarding, rules, zones). Review rules before enabling.'));
-		o.default = '0';
-		o.rmempty = false;
-		o.cfgvalue = function() { return uci.get('ha-cluster', 'firewall', 'enabled'); };
-		o.write = function(section_id, value) { uci.set('ha-cluster', 'firewall', 'enabled', value); };
-		o.remove = function() { uci.set('ha-cluster', 'firewall', 'enabled', '0'); };
+		if (leaseSyncInstalled) {
+			o = s.option(form.Flag, 'lease_sync', _('Real-time Lease Sync'),
+				_('Replicates DHCP leases between nodes so that clients keep their address after a failover. Independent of the DHCP configuration sync above.'));
+			o.rmempty = false;
+			o.cfgvalue = function(section_id) {
+				return getBool(uci.get('ha-cluster', section_id, 'lease_sync'), false) ? '1' : '0';
+			};
+			o.write = function(section_id, value) {
+				if (this.cfgvalue(section_id) !== value)
+					uci.set('ha-cluster', section_id, 'lease_sync', value);
+			};
+		} else {
+			o = s.option(form.DummyValue, '_lease_sync_missing');
+			o.renderWidget = function(section_id) {
+				return installHint(_('lease-sync is not installed. Install the <code>lease-sync</code> and <code>dnsmasq-ha</code> packages to synchronize DHCP leases.') +
+					(getBool(uci.get('ha-cluster', section_id, 'lease_sync'), false)
+						? ' ' + _('Lease sync is on in the configuration and will start once they are installed.') : ''));
+			};
+		}
 
 		return m.render();
 	}
