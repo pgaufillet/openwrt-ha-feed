@@ -136,6 +136,33 @@ docker run --rm \
   ha-feed-build-local
 ```
 
+## Faster repeated builds
+
+Each `docker run --rm` starts from the bare SDK and rebuilds every dependency
+of the requested packages. To keep the SDK state (downloads, build and staging
+directories) between runs, mount a named volume on the SDK directory; it is
+seeded from the image on first use, and later runs only rebuild what changed:
+
+```bash
+docker run --rm \
+  -v ha-feed-sdk:/home/build/openwrt-sdk \
+  -v "$PWD:/feed:ro" \
+  -v "$PWD/output:/output" \
+  ha-feed-build-local ha-cluster
+```
+
+Combined with a local checkout (previous section), edits to the feed are
+picked up on the next run. In this mode the requested packages are always
+rebuilt, and only they are copied to `./output` (not their dependencies).
+
+- Use a named volume, not a host directory: only named volumes are seeded.
+- Prefer a one-shot build for releases: with `SIGN_KEY`, the index covers
+  every package the volume holds, including those of earlier runs.
+- Use one volume per image. After rebuilding the image, the old volume is
+  rejected; clear it with `docker volume rm ha-feed-sdk` (the next run
+  reseeds it).
+- Run one build at a time per volume.
+
 ## Other options
 
 | Variable | Purpose |

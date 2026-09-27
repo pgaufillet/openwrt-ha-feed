@@ -94,6 +94,11 @@ RUN set -eux; \
     ./scripts/feeds update -a; \
     echo "${HA_FEED_SRC}" >> feeds.conf
 
+# --- Tag the SDK directory ---------------------------------------------------
+# A volume mounted on the SDK directory keeps the copy it was seeded from;
+# the entrypoint compares both tags to reject a volume from another image.
+RUN cat /proc/sys/kernel/random/uuid | tee .image-id > ../.image-id
+
 # --- Build entrypoint --------------------------------------------------------
 COPY --chown=build:build build-packages.sh /home/build/build-packages.sh
 ENTRYPOINT ["/home/build/build-packages.sh"]

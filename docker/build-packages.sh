@@ -12,6 +12,13 @@
 # build only those, e.g.:
 #   docker run --rm -v "$PWD/output:/output" ha-feed-build owsync lease-sync
 #
+# To keep the SDK state (downloads, build and staging directories) between
+# runs, so that later runs only rebuild the requested packages and what
+# changed, mount a named volume on the SDK directory; it is seeded from the
+# image on first use:
+#   docker run --rm -v ha-feed-sdk:/home/build/openwrt-sdk \
+#     -v "$PWD/output:/output" ha-feed-build [PKG ...]
+#
 # Environment variables:
 #   JOBS       Parallel build jobs (default: number of CPUs).
 #   SIGN_KEY   Path (inside the container) to a usign private key. When set, a
@@ -31,6 +38,26 @@ V_FLAG=""
 
 cd "$SDK_DIR"
 
+# A volume mounted on the SDK directory keeps its state between runs.
+CACHED=0
+mountpoint -q "$SDK_DIR" && CACHED=1
+
+if [ ! -f Makefile ]; then
+    echo "ERROR: $SDK_DIR is empty. Mount a named volume there, not a host" >&2
+    echo "directory: only named volumes are seeded from the image." >&2
+    exit 1
+fi
+if ! cmp -s /home/build/.image-id .image-id; then
+    echo "ERROR: the volume mounted on $SDK_DIR was seeded from another image." >&2
+    echo "Remove it (docker volume rm <name>) and run again." >&2
+    exit 1
+fi
+exec 9> .build.lock
+if ! flock -n 9; then
+    echo "ERROR: another build is using this SDK volume." >&2
+    exit 1
+fi
+
 if [ "$#" -gt 0 ]; then
     PACKAGES=("$@")
 else
@@ -40,7 +67,7 @@ fi
 echo "=============================================="
 echo " OpenWrt HA Cluster feed - package build"
 echo "=============================================="
-echo " SDK:      $SDK_DIR"
+echo " SDK:      $SDK_DIR$([ "$CACHED" = 0 ] || echo " (volume)")"
 echo " Packages: ${PACKAGES[*]}"
 echo " Jobs:     $JOBS"
 echo "=============================================="
@@ -57,6 +84,9 @@ done < <(awk '/^src-/ { for (i = 2; i <= NF; i++) if ($i !~ /^--/) { print $i; b
 ./scripts/feeds update "${feeds[@]}"
 
 echo "[2/4] Installing feed packages..."
+# Start from a clean slate so that dependency changes in the feed are
+# picked up when the SDK directory is reused.
+./scripts/feeds uninstall -a > /dev/null
 for pkg in "${PACKAGES[@]}"; do
     ./scripts/feeds install "$pkg"
 done
@@ -65,6 +95,7 @@ echo "[3/4] Configuring and compiling packages in parallel..."
 # The SDK defaults to CONFIG_ALL=y, which selects every package of every
 # source pulled in by "feeds install", optional dependencies included.
 # Select only the requested packages and what they depend on.
+[ ! -f .config ] || cp -p .config .config.prev
 {
     echo "# CONFIG_ALL is not set"
     echo "# CONFIG_ALL_KMODS is not set"
@@ -75,12 +106,38 @@ echo "[3/4] Configuring and compiling packages in parallel..."
 } > .config
 # Expand the minimal package selection into a full .config.
 make defconfig
+# Keep the previous mtime when the SDK directory is reused and the
+# configuration did not change, so the build stamps stay valid.
+if [ -f .config.prev ]; then
+    if cmp -s .config .config.prev; then
+        touch -r .config.prev .config
+    fi
+    rm -f .config.prev
+fi
+# OpenWrt >= 24.10 emits .apk; older releases emit .ipk. Handle both.
+# A reused SDK also holds the packages of earlier runs: only the requested
+# ones are collected, after dropping their previous artifacts so that make
+# rebuilds them. Removing any other artifact would make it rebuild that
+# package from scratch too.
+if [ "$CACHED" = 0 ]; then
+    match=(-name '*.apk' -o -name '*.ipk')
+else
+    match=()
+    for pkg in "${PACKAGES[@]}"; do
+        match+=(-o -name "$pkg-[0-9]*.apk" -o -name "${pkg}_[0-9]*.ipk")
+    done
+    match=("${match[@]:1}")
+    find bin/packages -type f \( "${match[@]}" \) -delete 2>/dev/null || true
+fi
 # Compile all in parallel
 make "package/compile" -j"$JOBS" $V_FLAG
+# The kernel module packages leave their packaging files in their build
+# directory, newer than its build stamp: kept, they would make the next run
+# repackage all the modules of the target, which takes minutes.
+[ "$CACHED" = 0 ] || rm -rf build_dir/target-*/linux-*/packages/apk-*
 
 echo "[4/4] Collecting artifacts..."
-# OpenWrt >= 24.10 emits .apk; older releases emit .ipk. Handle both.
-mapfile -t artifacts < <(find bin/packages -type f \( -name '*.apk' -o -name '*.ipk' \) 2>/dev/null)
+mapfile -t artifacts < <(find bin/packages -type f \( "${match[@]}" \) 2>/dev/null)
 
 if [ "${#artifacts[@]}" -eq 0 ]; then
     echo "ERROR: no package artifacts were produced." >&2
@@ -99,7 +156,7 @@ fi
 if [ -d "$OUTPUT_DIR" ]; then
     # Preserve the bin/packages/<arch>/ha_feed/ layout under /output.
     if (cd bin/packages && find . -type f \
-            \( -name '*.apk' -o -name '*.ipk' -o -name 'Packages*' -o -name 'index.json' \) \
+            \( "${match[@]}" -o -name 'Packages*' -o -name 'index.json' \) \
             -exec cp --parents -t "$OUTPUT_DIR" {} +); then
         echo "  Copied artifacts to $OUTPUT_DIR"
     else
