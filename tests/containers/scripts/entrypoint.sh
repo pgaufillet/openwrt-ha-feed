@@ -136,6 +136,11 @@ done
 # Docker manages the base interface configuration (IPs), but netifd handles
 # additional OpenWrt-specific functionality
 
+# procd hands its own environment to hotplug handlers and lets it win over
+# the event's variables: the runtime's HOSTNAME would replace the DHCP
+# client name in every dhcp hotplug event. Real OpenWrt boots without it.
+unset HOSTNAME
+
 echo "Container initialization complete. Executing procd as PID 1..."
 
 # Exec procd as PID 1
