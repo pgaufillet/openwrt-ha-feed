@@ -1,0 +1,23 @@
+#!/bin/sh
+# Only "ip -4|-6 route get <addr>" and "ip -4|-6 -o addr show dev <dev>"
+# are emulated: the route is $FAKE_ROUTE, the addresses are those of
+# $FAKE_ADDRS (addr/prefix list) in the requested family, all on <dev>.
+case "$*" in
+	"-4 route get "*|"-6 route get "*)
+		[ -n "$FAKE_ROUTE" ] || exit 2
+		echo "$FAKE_ROUTE"
+		;;
+	"-4 -o addr show dev "*|"-6 -o addr show dev "*)
+		for addr in $FAKE_ADDRS; do
+			case "$1 $addr" in
+				"-4 "*:*|"-6 "*.*) ;;
+				"-4 "*) echo "2: $6    inet $addr scope global $6" ;;
+				*) echo "2: $6    inet6 $addr scope global" ;;
+			esac
+		done
+		;;
+	*)
+		echo "ip stub: unsupported command $*" >&2
+		exit 2
+		;;
+esac

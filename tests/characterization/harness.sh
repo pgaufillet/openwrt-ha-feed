@@ -7,7 +7,8 @@
 # create files, set the FAKE_* variables read by the stubs, and set
 # STEP2=reload|stop (with an optional step2 function applying changes
 # first) to observe a second step after the first start. rpcd cases may
-# set RPCD_METHOD to call another method than status.
+# set RPCD_METHOD to call another method than status, and RPCD_ARGS to
+# the JSON arguments rpcd passes on stdin.
 #
 # Cases describe the configuration before the package upgrade: the
 # uci-defaults migration runs on it before the first start. step2
@@ -39,13 +40,17 @@ for service in keepalived owsync lease-sync; do
 	[ -x "/etc/init.d/$service" ] && "/etc/init.d/$service" enable
 done
 
-# rpcd defaults: every daemon running, peer reachable, VRRP MASTER
+# rpcd defaults: every daemon running, peer reachable, VRRP MASTER, no
+# route and no address for get_source_for_peer
 export FAKE_RUNNING="keepalived owsync lease-sync"
 export FAKE_ONLINE="172.30.0.11"
 export FAKE_KEEPALIVED="$CHAR/rpcd/fixtures/keepalived-master.json"
+export FAKE_ROUTE=""
+export FAKE_ADDRS=""
 
 STEP2=""
 RPCD_METHOD=status
+RPCD_ARGS="{ }"
 set -e
 . "$case_file"
 uci commit
@@ -150,7 +155,7 @@ case "$mode" in
 			[ -f "$f" ] && touch -d "2026-01-01 00:00:00" "$f"
 		done
 		# Raw JSON on the last line: a jshn round trip would rename keys
-		out="$(/usr/libexec/rpcd/ha-cluster call "$RPCD_METHOD")"
+		out="$(printf '%s' "$RPCD_ARGS" | /usr/libexec/rpcd/ha-cluster call "$RPCD_METHOD")"
 		echo "== $RPCD_METHOD rc=$?"
 		echo "$out"
 		;;
