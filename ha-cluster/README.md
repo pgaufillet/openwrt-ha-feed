@@ -53,6 +53,11 @@ ha-cluster restarts:
 - peer `sync_enabled '0'` becomes `vrrp_only '1'`
 - `lease_sync_persist_interval` is removed
 
+The migration expects VRRP settings in `vrrp_instance` sections. A
+config from the `v1.0.0` feed tag, where each `vip` carries its own
+`vrid` and `priority`, is not converted and gets no VRRP instance:
+recreate its VIPs (for example in LuCI) after upgrading.
+
 apk installs the new default config next to an edited one as
 `/etc/config/ha-cluster.apk-new`: it is for reference only, the migrated
 file stays in use.
