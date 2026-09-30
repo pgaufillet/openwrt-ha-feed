@@ -157,6 +157,21 @@ missing on any VIP interface with lease sync enabled.
 Only set `force=1` on interfaces where you need HA DHCP. Other interfaces
 (management networks, etc.) retain normal dhcp_check protection.
 
+Every node serving DHCP must run dnsmasq non-authoritative: an
+authoritative dnsmasq (OpenWrt's default) NAKs requests addressed to
+another node, and clients may get no lease. Lease sync also needs
+identical DHCP ranges on all nodes, so that the node taking over can
+renew the synced leases; syncing `/etc/config/dhcp` provides that. On
+every node:
+
+```sh
+uci set dhcp.@dnsmasq[0].authoritative='0'
+uci commit dhcp
+```
+
+ha-cluster warns (in the log and in LuCI) when dnsmasq is authoritative
+while several nodes serve DHCP, but never changes `/etc/config/dhcp`.
+
 ## UCI Configuration
 
 All configuration lives in `/etc/config/ha-cluster`.
