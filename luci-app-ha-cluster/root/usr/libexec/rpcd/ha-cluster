@@ -380,10 +380,12 @@ case "$1" in
 
 				vip_list=""
 				for vip_section in $(uci show ha-cluster 2>/dev/null | grep "=vip$" | cut -d. -f2 | cut -d= -f1); do
-					vip_addr=$(uci -q get "ha-cluster.$vip_section.address")
-					if [ -n "$vip_addr" ]; then
-						vip_list="$vip_list $vip_addr"
-					fi
+					for vip_option in address address6; do
+						vip_addr=$(uci -q get "ha-cluster.$vip_section.$vip_option")
+						if [ -n "$vip_addr" ]; then
+							vip_list="$vip_list $vip_addr"
+						fi
+					done
 				done
 
 				is_vip=0
