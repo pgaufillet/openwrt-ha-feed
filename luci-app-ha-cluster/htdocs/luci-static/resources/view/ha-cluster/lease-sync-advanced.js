@@ -56,11 +56,6 @@ return view.extend({
 		o.datatype = 'uinteger';
 		o.placeholder = '120';
 
-		o = s.option(form.Value, 'lease_sync_persist_interval', _('Persist Interval'),
-			_('Seconds between disk writes. Increase to 300 for flash storage.'));
-		o.datatype = 'uinteger';
-		o.placeholder = '60';
-
 		o = s.option(form.ListValue, 'lease_sync_log_level', _('Log Level'),
 			_('Use Debug (3) for troubleshooting sync issues.'));
 		o.value('0', _('Error'));

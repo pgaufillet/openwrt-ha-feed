@@ -514,7 +514,6 @@ const ACTIONS = [
 	['lease-sync-tuning', 'full', 'lease-sync-advanced', async p => {
 		const sid = await p.getAttribute('#view [data-section-id]', 'data-section-id');
 		await fill(p, field(sid, 'lease_sync_port'), '5400');
-		await fill(p, field(sid, 'lease_sync_persist_interval'), '600');
 		await select(p, field(sid, 'lease_sync_log_level'), '1');
 		await saveMain(p);
 	}]
