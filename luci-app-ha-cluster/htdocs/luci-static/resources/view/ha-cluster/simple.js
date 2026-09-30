@@ -363,14 +363,7 @@ return view.extend({
 		o.textvalue = function(section_id) {
 			var inst = uci.get('ha-cluster', section_id, 'vrrp_instance') || '';
 			if (!inst) return '-';
-			var vrid = uci.get('ha-cluster', inst, 'vrid');
-			if (!vrid) return '-';
-			var addr6 = uci.get('ha-cluster', section_id, 'address6');
-			if (addr6) {
-				var vrid6 = parseInt(vrid, 10) + 128;
-				return vrid + ' (IPv6: ' + vrid6 + ')';
-			}
-			return vrid;
+			return uci.get('ha-cluster', inst, 'vrid') || '-';
 		};
 		o.modalonly = false;
 
