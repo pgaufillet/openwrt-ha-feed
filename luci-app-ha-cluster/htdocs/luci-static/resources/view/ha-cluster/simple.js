@@ -90,11 +90,11 @@ return view.extend({
 			return getBool(group.enabled, true);
 		};
 
+		// Full width in the flex option row, like the DHCP hint
 		var installHint = function(text) {
-			return E('div', { 'class': 'alert-message' }, [
+			return E('div', { 'class': 'alert-message warning', 'style': 'flex: 1' }, [
 				E('p', {}, text),
-				E('p', {}, E('a', { 'href': L.url('admin/system/package-manager') },
-					_('Go to Software page') + ' \u2192'))
+				E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…')))
 			]);
 		};
 

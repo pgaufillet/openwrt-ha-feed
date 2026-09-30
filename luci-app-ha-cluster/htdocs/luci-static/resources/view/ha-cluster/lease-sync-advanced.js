@@ -22,11 +22,9 @@ return view.extend({
 		if (!leaseSyncInstalled) {
 			return E('div', { 'class': 'cbi-map' }, [
 				E('h2', {}, _('High Availability - Advanced Lease Sync')),
-				E('div', { 'class': 'alert-message info' }, [
+				E('div', { 'class': 'alert-message warning' }, [
 					E('p', {}, _('Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization.')),
-					E('p', {}, [
-						E('a', { 'href': L.url('admin/system/package-manager') }, _('Go to Software page') + ' \u2192')
-					])
+					E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…')))
 				])
 			]);
 		}
