@@ -79,28 +79,6 @@ request_pinned_lease() {
     get_client_ip "$client"
 }
 
-# Delete every lease from both nodes, then let the delete retries expire.
-# Deletes on one node propagate to the peer, which echoes them back; the
-# echo fails and is retried for 15s, deleting any new lease for the same
-# address in that window.
-clear_node_leases() {
-    local node ip i
-    for node in "$NODE1" "$NODE2"; do
-        for ip in $(exec_node "$node" awk '{print $3}' /tmp/dhcp.leases 2>/dev/null); do
-            delete_lease "$node" "$ip" >/dev/null 2>&1 || true
-        done
-        for i in 1 2 3 4 5 6 7 8 9 10; do
-            if [ "$(get_lease_count "$NODE1")" = "0" ] &&
-               [ "$(get_lease_count "$NODE2")" = "0" ]; then
-                sleep 17
-                return 0
-            fi
-            sleep 1
-        done
-    done
-    return 1
-}
-
 # Print the hostname dnsmasq holds for a lease ("*" when none)
 # Usage: name=$(lease_hostname "node" "192.168.50.100")
 lease_hostname() {
