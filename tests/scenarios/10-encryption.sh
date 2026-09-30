@@ -274,7 +274,9 @@ test_capture_sync_traffic() {
 
     # Generate real sync traffic via DHCP client
     info "Requesting DHCP lease to generate sync traffic..."
-    DHCP_LEASE_IP=$(dhcp_request "$CLIENT1")
+    local t0
+    t0=$(exec_node "$NODE1" date +%s)
+    DHCP_LEASE_IP=$(request_lease "$CLIENT1")
     if [ -n "$DHCP_LEASE_IP" ]; then
         pass "DHCP lease obtained: $DHCP_LEASE_IP"
     else
@@ -302,6 +304,25 @@ test_capture_sync_traffic() {
         fail "Capture too small ($capture_size bytes) - no sync traffic observed"
         return 1
     fi
+
+    # Heartbeats alone would fill the capture: it must hold the packet the
+    # serving node sent when it broadcast the lease. All messages have the
+    # same size, and heartbeats and sync requests may come within a second
+    # of the lease: match on time. The broadcast is sent right before its
+    # log line, whose timestamp is truncated to the millisecond.
+    local src bcast offset=""
+    lease_server "$CLIENT1" "$DHCP_LEASE_IP" "$DHCP_CLIENT_MAC" "$t0" || return 1
+    src="$NODE1_BACKEND_IP"
+    [ "$LEASE_SERVER" = "$NODE2" ] && src="$NODE2_BACKEND_IP"
+    bcast=$(log_times "$LEASE_SERVER" "$t0" "lease-sync\[[0-9]*\]: Processed local lease: $DHCP_LEASE_IP " | head -1)
+    [ -n "$bcast" ] && offset=$(exec_node "$NODE2" tcpdump -r "$CAPTURE_FILE" -n -tt src host "$src" 2>/dev/null | \
+        awk -v b="$bcast" '$1 - b >= -0.05 && $1 - b <= 0.005 {printf "%+.4f", $1 - b; exit}')
+    if [ -n "$offset" ]; then
+        pass "Capture holds the broadcast of $DHCP_LEASE_IP from $LEASE_SERVER (${offset}s from its log line)"
+    else
+        fail "Capture lacks the broadcast of $DHCP_LEASE_IP from $LEASE_SERVER"
+        return 1
+    fi
 }
 
 test_no_plaintext_lease_data() {
@@ -320,42 +341,25 @@ test_no_plaintext_lease_data() {
         return 0
     fi
 
-    # Search raw capture file for plaintext patterns using grep on binary data.
-    # If encryption is working, we should NOT find:
-    # - The DHCP lease IP address
-    # - The client MAC address
-    # - Protocol message types
-
+    # Search the raw capture for fields a plain message carries as text:
+    # the client MAC, the "LSYN" magic and the sender node ID. The lease IP
+    # travels in binary either way.
     info "Searching for plaintext patterns in raw capture..."
-    info "Checking for IP=$DHCP_LEASE_IP MAC=$DHCP_CLIENT_MAC"
+    info "Checking for MAC=$DHCP_CLIENT_MAC, magic, node IDs"
 
-    local plaintext_found=false
+    local plaintext_found=false pattern
 
-    # Check for IP address (plaintext)
-    if [ -n "$DHCP_LEASE_IP" ]; then
-        if exec_node "$NODE2" grep -q "$DHCP_LEASE_IP" "$CAPTURE_FILE" 2>/dev/null; then
-            fail "Plaintext IP address found in capture: $DHCP_LEASE_IP"
-            plaintext_found=true
-        else
-            pass "IP address not found in plaintext"
-        fi
+    if [ -n "$DHCP_CLIENT_MAC" ] &&
+       exec_node "$NODE2" grep -qi "$DHCP_CLIENT_MAC" "$CAPTURE_FILE" 2>/dev/null; then
+        fail "Plaintext MAC address found in capture: $DHCP_CLIENT_MAC"
+        plaintext_found=true
+    else
+        pass "MAC address not found in plaintext"
     fi
 
-    # Check for MAC address (plaintext)
-    if [ -n "$DHCP_CLIENT_MAC" ]; then
-        if exec_node "$NODE2" grep -qi "$DHCP_CLIENT_MAC" "$CAPTURE_FILE" 2>/dev/null; then
-            fail "Plaintext MAC address found in capture: $DHCP_CLIENT_MAC"
-            plaintext_found=true
-        else
-            pass "MAC address not found in plaintext"
-        fi
-    fi
-
-    # Check for common lease-sync message patterns that should be encrypted
-    local message_patterns="ADD_LEASE DELETE_LEASE SYNC_REQUEST"
-    for pattern in $message_patterns; do
+    for pattern in LSYN "$NODE1" "$NODE2"; do
         if exec_node "$NODE2" grep -q "$pattern" "$CAPTURE_FILE" 2>/dev/null; then
-            fail "Plaintext message type found: $pattern"
+            fail "Plaintext message field found in capture: $pattern"
             plaintext_found=true
         fi
     done
