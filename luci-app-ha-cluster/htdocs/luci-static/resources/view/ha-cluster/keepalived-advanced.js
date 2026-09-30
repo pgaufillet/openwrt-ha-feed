@@ -380,7 +380,7 @@ return view.extend({
 		o = s.taboption('unicast', form.Value, 'unicast_src_ip', _('Unicast Source IP'),
 			(transport === 'unicast' && autoSrcIp)
 				? _('Per-instance override. When empty, auto-derived from peer config: %s').format(autoSrcIp)
-				: _('This router\'s IP for unicast VRRP. Leave empty for multicast (default).'));
+				: _('This router\'s address for unicast VRRP, in the family of a unicast peer. When empty, keepalived uses an address of the interface.'));
 		o.datatype = 'ipaddr';
 		o.placeholder = (transport === 'unicast' && autoSrcIp)
 			? _('Auto: %s').format(autoSrcIp)

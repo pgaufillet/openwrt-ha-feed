@@ -320,7 +320,7 @@ return view.extend({
 
 		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
 			_('All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups.') + ' ' +
-			_('Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.'));
+			_('Multicast VRRP adds a second instance with VRID+128 for the IPv6 addresses. Unicast VRRP runs one instance in the family of the unicast addresses, and the other family fails over with it.'));
 		s.anonymous = true;
 		s.addremove = true;
 		s.sortable = true;
@@ -466,7 +466,7 @@ return view.extend({
 		o.placeholder = 'fd00::1';
 		o.rmempty = true;
 		o.modalonly = true;
-		o.description = _('Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.');
+		o.description = _('Optional. Multicast VRRP advertises it in a second instance with VRID+128; unicast VRRP fails it over with the single instance.');
 		o.validate = function(section_id, value) {
 			var addr = this.map.lookupOption('address', section_id);
 			var addrval = addr ? addr[0].formvalue(section_id) : '';
