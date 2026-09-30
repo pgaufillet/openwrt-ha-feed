@@ -2,7 +2,9 @@
 # 10-encryption.sh - Test T10: Encryption Validation
 #
 # Validates that AES-256-GCM encryption is active for lease-sync traffic.
-# Verifies no plaintext lease data is transmitted over the network.
+# Verifies no plaintext lease data is transmitted over the network, that a
+# node with another key rejects synced leases, and that sync resumes once
+# the key is restored.
 #
 # Copyright (C) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 
@@ -23,10 +25,144 @@ TEST_DIR="$(dirname "$SCRIPT_DIR")"
 CAPTURE_FILE="/tmp/lease-sync-capture.pcap"
 CAPTURE_DURATION=5
 LEASE_SYNC_PORT=5378
+LEASE_SYNC_CONF="/tmp/ha-cluster/lease-sync.conf"
+AUTH_FAILURE="lease-sync\[[0-9]*\]: Received message with invalid authentication tag"
 
 # DHCP client for generating real sync traffic
 DHCP_CLIENT_MAC=""
 DHCP_LEASE_IP=""
+
+# NODE2 key before the wrong key test, restored by cleanup
+ORIG_KEY=""
+KEY_CHANGED=false
+
+# Seconds a lease may take to reach the peer, set by setup
+SYNC_WINDOW=""
+
+# Node that served the last lease checked by lease_server
+LEASE_SERVER=""
+
+# ============================================
+# Helper Functions
+# ============================================
+
+# Print a node's syslog lines logged at or after an epoch time
+# Usage: log_since "node" "$t0"
+log_since() {
+    exec_node "$1" logread -t 2>/dev/null | \
+        awk -v t0="$2" 'match($0, /\[[0-9]+\.[0-9]+\]/) &&
+            substr($0, RSTART + 1, RLENGTH - 2) + 0 >= t0'
+}
+
+# Print the epoch times of a node's syslog lines matching a pattern
+# Usage: log_times "node" "$t0" "pattern"
+log_times() {
+    log_since "$1" "$2" | grep -e "$3" | sed 's/^[^[]*\[\([0-9.]*\)\].*/\1/'
+}
+
+# One-shot request from a client without DHCP state: it broadcasts a
+# DISCOVER and takes the first offer, from either node
+# Usage: ip=$(request_lease "ha-client1")
+request_lease() {
+    exec_client "$1" sh -c 'rm -rf /var/lib/dhcpcd/*' 2>/dev/null
+    dhcp_request "$1"
+}
+
+# Set LEASE_SERVER to the node that served a client's lease: the server
+# identifier in the client's lease file, which must also be the only node
+# that logged the DHCPACK since t0
+# Usage: lease_server "ha-client1" "$ip" "$mac" "$t0"
+lease_server() {
+    local client="$1" ip="$2" mac="$3" t0="$4"
+    local sid node acks=""
+
+    LEASE_SERVER=""
+    # Option 54 of the DHCPACK dhcpcd stored (options start at byte 240)
+    sid=$(exec_client "$client" od -An -tu1 -v /var/lib/dhcpcd/eth0.lease 2>/dev/null | \
+        awk '{for (i = 1; i <= NF; i++) b[n++] = $i}
+            END {
+                i = 240
+                while (i < n && b[i] != 255) {
+                    if (b[i] == 0) { i++; continue }
+                    if (b[i] == 54 && b[i + 1] == 4) {
+                        print b[i + 2] "." b[i + 3] "." b[i + 4] "." b[i + 5]
+                        exit
+                    }
+                    i += 2 + b[i + 1]
+                }
+            }')
+    for node in "$NODE1" "$NODE2"; do
+        if log_since "$node" "$t0" | grep -qi "DHCPACK([^)]*) $ip $mac"; then
+            acks="$acks $node"
+        fi
+    done
+
+    case "$sid" in
+        "$NODE1_CLIENT_IP") node="$NODE1" ;;
+        "$NODE2_CLIENT_IP") node="$NODE2" ;;
+        *) node="" ;;
+    esac
+    if [ -z "$node" ] || [ "$acks" != " $node" ]; then
+        fail "Serving node of $ip unclear (server identifier: ${sid:-none}, DHCPACK from:${acks:- none})"
+        return 1
+    fi
+    LEASE_SERVER="$node"
+    pass "Lease $ip served by $node (server identifier and DHCPACK)"
+}
+
+# Set the NODE2 encryption key as an admin would (UCI, then reload) and
+# check that a new lease-sync runs with it: on startup it requests a full
+# sync, which NODE1 must accept or reject
+# Usage: set_node2_key "$key" accepted|rejected
+set_node2_key() {
+    local key="$1" expect="$2"
+    local old_pid pid t0 stopped log count=0
+
+    old_pid=$(exec_node "$NODE2" pidof lease-sync)
+    t0=$(exec_node "$NODE2" date +%s)
+    if ! exec_node "$NODE2" uci set ha-cluster.config.encryption_key="$key" ||
+       ! exec_node "$NODE2" uci commit ha-cluster ||
+       ! exec_node "$NODE2" /etc/init.d/ha-cluster reload; then
+        fail "Could not set the encryption key on $NODE2"
+        return 1
+    fi
+    if [ "$(uci_get "$NODE2" ha-cluster.config.encryption_key)" != "$key" ] ||
+       ! exec_node "$NODE2" grep -qx "psk_key=$key" "$LEASE_SYNC_CONF"; then
+        fail "Encryption key not in the $NODE2 lease-sync config"
+        return 1
+    fi
+
+    while [ $count -lt 15 ]; do
+        pid=$(exec_node "$NODE2" pidof lease-sync)
+        if [ -n "$pid" ] && [ "$pid" != "$old_pid" ] &&
+           log_since "$NODE2" "$t0" | grep -q "lease-sync\[$pid\]: Reconciliation complete"; then
+            break
+        fi
+        sleep 1
+        count=$((count + 1))
+    done
+    if [ $count -ge 15 ]; then
+        fail "lease-sync did not restart on $NODE2 (pid ${old_pid:-none} -> ${pid:-none})"
+        return 1
+    fi
+
+    # Only the new daemon talks to NODE1 once the old one left its loop
+    stopped=$(log_times "$NODE2" "$t0" "lease-sync\[$old_pid\]: Exiting main event loop" | head -1)
+    log=$(log_since "$NODE1" "${stopped:-$t0}")
+    case "$expect" in
+        accepted)
+            echo "$log" | grep -q "Received sync request from $NODE2"
+            ;;
+        rejected)
+            echo "$log" | grep -q "$AUTH_FAILURE" &&
+                ! echo "$log" | grep -q "Received sync request from $NODE2"
+            ;;
+    esac || {
+        fail "$NODE1 did not see the $NODE2 key as $expect"
+        return 1
+    }
+    pass "$NODE2 lease-sync restarted with a key $NODE1 $expect"
+}
 
 # ============================================
 # Test Setup
@@ -56,9 +192,9 @@ setup() {
         return 1
     fi
 
-    # Check if DHCP client is available (needed for real sync traffic)
-    if ! client_running "$CLIENT1"; then
-        skip "Encryption validation test" "DHCP client container not available"
+    # Check if DHCP clients are available (needed for real sync traffic)
+    if ! client_running "$CLIENT1" || ! client_running "$CLIENT2"; then
+        skip "Encryption validation test" "DHCP client containers not available"
         return 1
     fi
 
@@ -68,9 +204,13 @@ setup() {
         return 1
     fi
 
-    # Release any existing lease
-    dhcp_release "$CLIENT1" 2>/dev/null || true
-    sleep 1
+    # A lease reaches the peer by the ADD broadcast on the DHCP event, by
+    # the injection retries (3 x 5s) or by the full sync the peer requests
+    # every sync_interval: wait past all three
+    local interval
+    interval=$(exec_node "$NODE2" sed -n 's/^sync_interval=//p' "$LEASE_SYNC_CONF")
+    SYNC_WINDOW=$((${interval:-30} + 5))
+    [ "$SYNC_WINDOW" -lt 20 ] && SYNC_WINDOW=20
 
     pass "Test setup complete"
     return 0
@@ -232,94 +372,105 @@ test_no_plaintext_lease_data() {
 test_wrong_key_rejected() {
     subheader "Verify Wrong Encryption Key Rejected"
 
-    # This test temporarily modifies the encryption key on NODE2
-    # to verify that mismatched keys prevent sync
+    local wrong_key t0 ip peer bcast result=0
 
-    # Get current key from NODE2
-    local original_key
-    original_key=$(exec_node "$NODE2" uci get ha-cluster.config.encryption_key 2>/dev/null || echo "")
-
-    if [ -z "$original_key" ]; then
-        skip "Wrong key test" "Cannot retrieve original encryption key"
-        return 0
+    ORIG_KEY=$(uci_get "$NODE2" ha-cluster.config.encryption_key)
+    if [ -z "$ORIG_KEY" ] ||
+       [ "$ORIG_KEY" != "$(uci_get "$NODE1" ha-cluster.config.encryption_key)" ]; then
+        fail "Nodes do not share an encryption key"
+        return 1
     fi
 
-    info "Testing with mismatched encryption key..."
+    clear_node_leases || { fail "Could not clear leases"; return 1; }
 
-    # Set wrong key on NODE2
-    local wrong_key="0000000000000000000000000000000000000000000000000000000000000000"
-    exec_node "$NODE2" uci set ha-cluster.config.encryption_key="$wrong_key"
-    exec_node "$NODE2" uci commit ha-cluster
+    # Differs from the original in every hex digit
+    wrong_key=$(echo "$ORIG_KEY" | tr '0-9a-f' '1-9a-f0')
+    KEY_CHANGED=true
+    set_node2_key "$wrong_key" rejected || return 1
 
-    # Restart lease-sync to pick up new key
-    exec_node "$NODE2" /etc/init.d/ha-cluster restart 2>/dev/null || true
-    sleep 3
-
-    # Release any existing lease and request a new one while keys are mismatched
-    dhcp_release "$CLIENT1" 2>/dev/null || true
-    sleep 1
-
-    info "Requesting DHCP lease with mismatched keys..."
-    local wrong_key_ip
-    wrong_key_ip=$(dhcp_request "$CLIENT1")
-
-    if [ -z "$wrong_key_ip" ]; then
-        info "DHCP request failed (expected if NODE2 was the DHCP server)"
-        # Cannot test wrong-key rejection without a successful lease
-        # Restore key and return non-fatal
-        exec_node "$NODE2" uci set ha-cluster.config.encryption_key="$original_key"
-        exec_node "$NODE2" uci commit ha-cluster
-        exec_node "$NODE2" /etc/init.d/ha-cluster restart 2>/dev/null || true
-        sleep 3
-        return 0
+    t0=$(exec_node "$NODE1" date +%s)
+    ip=$(request_lease "$CLIENT1")
+    if [ -z "$ip" ]; then
+        fail "$CLIENT1 obtained no lease with mismatched keys"
+        return 1
     fi
+    lease_server "$CLIENT1" "$ip" "$DHCP_CLIENT_MAC" "$t0" || return 1
+    peer=$(get_peer_node "$LEASE_SERVER")
 
-    # Wait briefly - sync should NOT succeed with wrong key
-    sleep 5
+    info "Waiting ${SYNC_WINDOW}s for $ip to reach $peer..."
+    sleep "$SYNC_WINDOW"
 
-    # Check if lease appeared on NODE2 (it should NOT)
-    if wait_for_dhcp_lease_by_mac "$NODE2" "$DHCP_CLIENT_MAC" 3; then
-        fail "Lease synced despite wrong encryption key"
-        local result=1
+    if get_all_leases "$peer" | grep -qi "$DHCP_CLIENT_MAC"; then
+        fail "Lease synced to $peer despite wrong encryption key"
+        result=1
     else
-        pass "Lease did NOT sync with wrong key (correct behavior)"
-        local result=0
+        pass "Lease absent from $peer after ${SYNC_WINDOW}s"
     fi
 
-    # Restore original key
-    info "Restoring original encryption key..."
-    exec_node "$NODE2" uci set ha-cluster.config.encryption_key="$original_key"
-    exec_node "$NODE2" uci commit ha-cluster
-    exec_node "$NODE2" /etc/init.d/ha-cluster restart 2>/dev/null || true
-    sleep 3
-
-    # Release the DHCP lease used for wrong-key test
-    dhcp_release "$CLIENT1" 2>/dev/null || true
+    # The absence must come from the key: the peer rejected a message
+    # when the server broadcast the lease, and decrypted none for it
+    bcast=$(log_times "$LEASE_SERVER" "$t0" "lease-sync\[[0-9]*\]: Processed local lease: $ip " | head -1)
+    if [ -z "$bcast" ]; then
+        fail "$LEASE_SERVER did not broadcast $ip"
+        result=1
+    elif log_times "$peer" "$t0" "$AUTH_FAILURE" | \
+         awk -v b="$bcast" '$1 >= b - 1 && $1 <= b + 2 {f = 1} END {exit !f}'; then
+        pass "$peer rejected the lease broadcast (invalid authentication tag)"
+    else
+        fail "$peer logged no authentication failure for the lease broadcast"
+        result=1
+    fi
+    if log_since "$peer" "$t0" | grep -q "Received [A-Z]* for $ip from"; then
+        fail "$peer decrypted a message for $ip"
+        result=1
+    fi
 
     return $result
 }
 
-test_verify_lease_synced() {
-    subheader "Verify Lease Sync Works With Correct Keys"
+test_restored_key_syncs() {
+    subheader "Verify Lease Sync After Key Restore"
 
-    # With correct keys restored, verify a new lease syncs properly
-    dhcp_release "$CLIENT1" 2>/dev/null || true
-    sleep 1
+    local mac node t0 ip peer
 
-    info "Requesting new DHCP lease to verify sync..."
-    local verify_ip
-    verify_ip=$(dhcp_request "$CLIENT1")
-
-    if [ -z "$verify_ip" ]; then
-        info "Could not obtain DHCP lease for verification"
-        return 0
+    if [ "$KEY_CHANGED" != "true" ]; then
+        fail "Encryption key was not changed, nothing to restore"
+        return 1
     fi
+    info "Restoring original encryption key..."
+    set_node2_key "$ORIG_KEY" accepted || return 1
+    KEY_CHANGED=false
 
-    info "Checking if lease $verify_ip synced to $NODE2..."
-    if wait_for_dhcp_lease_by_mac "$NODE2" "$DHCP_CLIENT_MAC" 15; then
-        pass "Lease synced to $NODE2 (encryption working correctly)"
+    # A fresh client: the restarted daemon pulls CLIENT1's lease with its
+    # startup sync, so that lease proves nothing about a new broadcast
+    mac=$(get_client_mac "$CLIENT2")
+    for node in "$NODE1" "$NODE2"; do
+        if get_all_leases "$node" | grep -qi "$mac"; then
+            fail "$CLIENT2 already holds a lease on $node"
+            return 1
+        fi
+    done
+
+    t0=$(exec_node "$NODE1" date +%s)
+    ip=$(request_lease "$CLIENT2")
+    if [ -z "$ip" ]; then
+        fail "$CLIENT2 obtained no lease with restored keys"
+        return 1
+    fi
+    lease_server "$CLIENT2" "$ip" "$mac" "$t0" || return 1
+    peer=$(get_peer_node "$LEASE_SERVER")
+
+    if wait_for_dhcp_lease_by_mac "$peer" "$mac" "$SYNC_WINDOW"; then
+        pass "Lease $ip synced to $peer with restored keys"
     else
-        info "Lease not on $NODE2 (may need more time after key change)"
+        fail "Lease $ip did not reach $peer within ${SYNC_WINDOW}s"
+        return 1
+    fi
+    if log_since "$peer" "$t0" | grep -q "Received ADD for $ip from"; then
+        pass "$peer decrypted the lease broadcast"
+    else
+        fail "$peer did not log the ADD for $ip"
+        return 1
     fi
 }
 
@@ -330,14 +481,21 @@ test_verify_lease_synced() {
 cleanup() {
     subheader "Cleanup"
 
-    # Release DHCP lease
-    dhcp_release "$CLIENT1" 2>/dev/null || true
+    local result=0
 
     # Remove capture file
     exec_node "$NODE2" rm -f "$CAPTURE_FILE" 2>/dev/null || true
 
     # Kill any lingering tcpdump
     exec_node "$NODE2" killall tcpdump 2>/dev/null || true
+
+    if [ "$KEY_CHANGED" = "true" ] &&
+       { [ "$(uci_get "$NODE2" ha-cluster.config.encryption_key)" != "$ORIG_KEY" ] ||
+         ! exec_node "$NODE2" grep -qx "psk_key=$ORIG_KEY" "$LEASE_SYNC_CONF"; }; then
+        info "Restoring original encryption key on $NODE2..."
+        set_node2_key "$ORIG_KEY" accepted || result=1
+    fi
+    KEY_CHANGED=false
 
     # Ensure lease-sync is running
     for node in "$NODE1" "$NODE2"; do
@@ -346,7 +504,8 @@ cleanup() {
         fi
     done
 
-    pass "Cleanup complete"
+    [ "$result" -eq 0 ] && pass "Cleanup complete"
+    return $result
 }
 
 # ============================================
@@ -359,18 +518,18 @@ main() {
 
     local result=0
 
+    # Restore the key even when the output reader is gone
+    trap 'trap "" PIPE; cleanup; exit 1' INT TERM
+
     setup || return 0  # Skip if prerequisites not met
 
     test_encryption_key_configured || result=1
     test_capture_sync_traffic || result=1
     test_no_plaintext_lease_data || result=1
+    test_wrong_key_rejected || result=1
+    test_restored_key_syncs || result=1
 
-    # Non-fatal: wrong key test requires key manipulation which may fail
-    run_nonfatal test_wrong_key_rejected "key manipulation may not be supported"
-
-    test_verify_lease_synced || true  # Non-blocking
-
-    cleanup
+    cleanup || result=1
 
     return $result
 }
