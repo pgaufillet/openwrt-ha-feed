@@ -57,9 +57,9 @@ get_server_id() {
 # Unlike the library's dhcp_request() which uses one-shot mode (-1),
 # this starts dhcpcd as a persistent daemon so it can perform natural
 # T1 renewal — required for the renewal propagation test.
-# The client only accepts packets from $server_ip: both nodes are
-# authoritative, and the NAK ("wrong server-ID") of the node it did not
-# select often beats the ACK and restarts discovery with backoff.
+# The client only accepts packets from $server_ip: both nodes offer
+# from the same pool and the first offer wins, while the test follows
+# the lease and its renewal on $server_ip.
 # Outputs only the obtained IP on stdout.
 # Usage: ip=$(request_fresh_lease "ha-client1" "192.168.50.10")
 request_fresh_lease() {
