@@ -1,0 +1,42 @@
+== status rc=0
+{
+    "role": "UNKNOWN",
+    "instances": {},
+    "peers": [
+        {
+            "name": "node2",
+            "address": "172.30.0.11",
+            "online": true,
+            "vrrp_only": false,
+            "last_seen": "Just now"
+        }
+    ],
+    "state": "STOPPED",
+    "dhcp_authoritative_conflict": false,
+    "services": {
+        "keepalived": {
+            "required": true,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        },
+        "owsync": {
+            "required": false,
+            "wanted": false,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        },
+        "lease-sync": {
+            "required": false,
+            "wanted": false,
+            "running": true,
+            "pid": 99999,
+            "uptime": 0
+        }
+    },
+    "sync": {
+        "config_last_sync": 0,
+        "lease_last_sync": 0
+    }
+}

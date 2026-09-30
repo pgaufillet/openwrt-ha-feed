@@ -2,6 +2,7 @@
 # luci-app-ha-cluster ACL groups
 checks() {
 	access ubus ha-cluster status
+	access ubus ha-cluster get_warnings
 	access ubus ha-cluster generate_key
 	access ubus ha-cluster apply
 	access ubus network.interface dump

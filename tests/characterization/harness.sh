@@ -6,7 +6,8 @@
 # A case file is sourced with errexit set. It may change UCI, remove or
 # create files, set the FAKE_* variables read by the stubs, and set
 # STEP2=reload|stop (with an optional step2 function applying changes
-# first) to observe a second step after the first start.
+# first) to observe a second step after the first start. rpcd cases may
+# set RPCD_METHOD to call another method than status.
 #
 # Cases describe the configuration before the package upgrade: the
 # uci-defaults migration runs on it before the first start. step2
@@ -44,6 +45,7 @@ export FAKE_ONLINE="172.30.0.11"
 export FAKE_KEEPALIVED="$CHAR/rpcd/fixtures/keepalived-master.json"
 
 STEP2=""
+RPCD_METHOD=status
 set -e
 . "$case_file"
 uci commit
@@ -148,8 +150,8 @@ case "$mode" in
 			[ -f "$f" ] && touch -d "2026-01-01 00:00:00" "$f"
 		done
 		# Raw JSON on the last line: a jshn round trip would rename keys
-		out="$(/usr/libexec/rpcd/ha-cluster call status)"
-		echo "== status rc=$?"
+		out="$(/usr/libexec/rpcd/ha-cluster call "$RPCD_METHOD")"
+		echo "== $RPCD_METHOD rc=$?"
 		echo "$out"
 		;;
 	acl)

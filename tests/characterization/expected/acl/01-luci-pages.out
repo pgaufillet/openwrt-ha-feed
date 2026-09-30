@@ -1,4 +1,5 @@
 access ubus ha-cluster status: true
+access ubus ha-cluster get_warnings: true
 access ubus ha-cluster generate_key: true
 access ubus ha-cluster apply: true
 access ubus network.interface dump: true

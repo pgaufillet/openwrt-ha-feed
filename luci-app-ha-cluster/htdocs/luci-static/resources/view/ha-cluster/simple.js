@@ -22,6 +22,12 @@ var callGenerateKey = rpc.declare({
 	method: 'generate_key'
 });
 
+var callGetWarnings = rpc.declare({
+	object: 'ha-cluster',
+	method: 'get_warnings',
+	expect: { }
+});
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -29,7 +35,8 @@ return view.extend({
 			callGetInterfaces(),
 			network.getDevices(),
 			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null),
-			L.resolveDefault(fs.stat('/usr/bin/owsync'), null)
+			L.resolveDefault(fs.stat('/usr/bin/owsync'), null),
+			L.resolveDefault(callGetWarnings(), {})
 		]);
 	},
 
@@ -38,6 +45,7 @@ return view.extend({
 		var netDevs = data[2] || [];
 		var leaseSyncInstalled = data[3] != null;
 		var owsyncInstalled = data[4] != null;
+		var warnings = data[5] || {};
 		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var m, s, o;
 
@@ -562,6 +570,23 @@ return view.extend({
 
 		var groups = uci.sections('ha-cluster', 'sync_group');
 
+		// Backend condition, on the committed configuration; shown once, under
+		// the DHCP config sync when it applies, else under lease sync
+		var hintUnderDhcp = owsyncInstalled && warnings.dhcp_synced === true;
+		var authoritativeHint = function() {
+			if (warnings.dhcp_authoritative_conflict !== true)
+				return;
+			o = s.option(form.DummyValue, '_dhcp_authoritative');
+			o.renderWidget = function() {
+				// Full width in the flex option row, like the theme's banners
+				return E('div', { 'class': 'alert-message warning', 'style': 'flex: 1' }, [
+					E('h4', {}, _('dnsmasq is authoritative')),
+					E('p', {}, _('Several nodes serve DHCP, so an authoritative dnsmasq rejects the clients of the other nodes. Turn off Authoritative in DHCP and DNS on every node.')),
+					E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/network/dhcp') }, _('Go to DHCP and DNS…')))
+				]);
+			};
+		};
+
 		s = m.section(form.NamedSection, 'config', 'global', _('Configuration Files'));
 
 		if (owsyncInstalled) {
@@ -589,6 +614,8 @@ return view.extend({
 
 			groupFlag('dhcp', _('DHCP and DNS'),
 				_('<code>/etc/config/dhcp</code>: address pools, static leases, DNS settings.'));
+			if (hintUnderDhcp)
+				authoritativeHint();
 			groupFlag('firewall', _('Firewall'),
 				_('<code>/etc/config/firewall</code>: zones, rules, port forwards. Review the rules before enabling: they apply to every node.'));
 
@@ -638,6 +665,9 @@ return view.extend({
 						? ' ' + _('Lease sync is on in the configuration and will start once they are installed.') : ''));
 			};
 		}
+
+		if (!hintUnderDhcp)
+			authoritativeHint();
 
 		return m.render();
 	}
