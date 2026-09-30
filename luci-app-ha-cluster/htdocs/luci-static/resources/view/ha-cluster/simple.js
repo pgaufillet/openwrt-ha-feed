@@ -53,6 +53,8 @@ return view.extend({
 		uci.sections('ha-cluster', 'vip').forEach(function(vip) {
 			if (vip.address)
 				vipAddresses[vip.address] = true;
+			if (vip.address6)
+				vipAddresses[vip.address6] = true;
 		});
 
 		var isValidSourceAddress = function(addr) {
