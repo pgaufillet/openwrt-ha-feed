@@ -40,6 +40,45 @@ apk add dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster
 dnsmasq kills DNS resolution, so ALL dependencies must be pre-installed
 before the swap.
 
+## Upgrading
+
+Upgrading from 1.0.x migrates `/etc/config/ha-cluster` in place before
+ha-cluster restarts:
+
+- `service` sections become `sync_group` sections
+- the `dhcp` group's `sync_leases` becomes the global `lease_sync`, and
+  `sync_leases` is removed from every group
+- a `sync_method` other than `owsync` disables every sync group and is
+  removed
+- peer `sync_enabled '0'` becomes `vrrp_only '1'`
+- `lease_sync_persist_interval` is removed
+
+apk installs the new default config next to an edited one as
+`/etc/config/ha-cluster.apk-new`: it is for reference only, the migrated
+file stays in use.
+
+Behaviour changes:
+
+- lease-sync follows `lease_sync` alone: a disabled `dhcp` sync group no
+  longer stops it. Set `lease_sync '0'` to keep it off.
+- owsync no longer runs without work (see
+  [Which daemons run](#which-daemons-run)).
+- With unicast peers, a VRRP instance whose peers and VIPs are all IPv6
+  now runs as `<name>` with its VRID, no longer as `<name>_v6` with
+  VRID+128. Nodes on different versions do not see each other for that
+  instance: upgrade all nodes together, and update hotplug scripts
+  matching `<name>_v6`.
+- With IPv6 unicast peers and only IPv4 VIPs, the instance now
+  advertises no address (`no_virtual_ipaddress`, VIPs in
+  `virtual_ipaddress_excluded`): a `vrrp_only` peer that is not
+  keepalived may not accept it.
+- An authoritative dnsmasq now draws a warning when leases or the DHCP
+  config are synced (see [DHCP Prerequisites](#dhcp-prerequisites)).
+
+The upgrade starts `/etc/init.d/ha-cluster` even if it was disabled with
+`/etc/init.d/ha-cluster disable` (standard OpenWrt packaging). The
+switch that the upgrade respects is ha-cluster's own `enabled` option.
+
 ## Dependencies
 
 - `keepalived` - VRRP failover (required)
