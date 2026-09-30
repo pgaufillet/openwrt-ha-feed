@@ -93,7 +93,7 @@ return view.extend({
 		var installHint = function(text) {
 			return E('div', { 'class': 'alert-message' }, [
 				E('p', {}, text),
-				E('p', {}, E('a', { 'href': '/cgi-bin/luci/admin/system/package-manager' },
+				E('p', {}, E('a', { 'href': L.url('admin/system/package-manager') },
 					_('Go to Software page') + ' \u2192'))
 			]);
 		};

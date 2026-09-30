@@ -129,7 +129,7 @@ return view.extend({
 				E('div', { 'class': 'alert-message info' }, [
 					E('p', {}, _('Install the owsync package to synchronize configuration files.')),
 					E('p', {}, [
-						E('a', { 'href': '/cgi-bin/luci/admin/system/package-manager' }, _('Go to Software page') + ' \u2192')
+						E('a', { 'href': L.url('admin/system/package-manager') }, _('Go to Software page') + ' \u2192')
 					])
 				])
 			]);
