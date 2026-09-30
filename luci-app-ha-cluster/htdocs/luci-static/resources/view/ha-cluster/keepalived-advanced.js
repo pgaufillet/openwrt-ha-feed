@@ -391,7 +391,7 @@ return view.extend({
 		o = s.taboption('unicast', form.DynamicList, 'unicast_peer', _('Unicast Peer IPs'),
 			(transport === 'unicast' && autoPeerAddrs.length > 0)
 				? _('Per-instance override. When empty, auto-derived from peer config: %s').format(autoPeerAddrs.join(', '))
-				: _('Peer router IPs. Required when using unicast mode. Both src_ip and peer must be set.'));
+				: _('Addresses of the other routers for unicast VRRP. Any entry makes this group unicast; only the peers in the family of the source IP, or else of the first peer, are used.'));
 		o.datatype = 'ipaddr';
 		o.placeholder = _('e.g., 192.168.1.2');
 		o.modalonly = true;
