@@ -135,7 +135,7 @@ set_node2_key() {
     while [ $count -lt 15 ]; do
         pid=$(exec_node "$NODE2" pidof lease-sync)
         if [ -n "$pid" ] && [ "$pid" != "$old_pid" ] &&
-           log_since "$NODE2" "$t0" | grep -q "lease-sync\[$pid\]: Reconciliation complete"; then
+           log_since "$NODE2" "$t0" | grep -q "lease-sync\[$pid\]: Startup complete"; then
             break
         fi
         sleep 1

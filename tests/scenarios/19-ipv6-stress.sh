@@ -20,7 +20,7 @@
 # RATIONALE:
 # - ubus add_lease clears LEASE_NEW flag to prevent ping-pong in HA setups
 # - Without flags, no dhcp-script events → no lease-sync database population
-# - Startup reconciliation deletes leases not in database as "stale"
+# - Untracked leases reach the peer only at their next DHCP event
 # - Manual event injection populates database while respecting architecture
 #
 # WHAT THIS TESTS:
@@ -102,7 +102,7 @@ get_lease_sync_memory() {
 # Usage: create_synthetic_leases "node1" count start_index
 #
 # This function creates leases AND sends ubus events to populate lease-sync database.
-# Without events, lease-sync database remains empty and reconciliation deletes leases as "stale".
+# Without events, lease-sync does not track the leases and does not sync them to the peer.
 #
 # Batches operations (50 per exec) to avoid docker exec overhead.
 # Individual success tracking is not possible in batch mode, so actual lease
