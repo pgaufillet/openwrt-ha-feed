@@ -349,7 +349,7 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 | T02 | VRRP Election | Correct MASTER/BACKUP assignment |
 | T03 | VIP Failover | VIP migrates on MASTER failure |
 | T04 | Config Sync | owsync replicates UCI changes |
-| T05 | Lease Sync | lease-sync replicates DHCP leases |
+| T05 | Lease Sync | lease-sync replicates DHCP leases and their release; a release then immediate re-lease keeps the new lease |
 
 ### Priority 2 - Reliability & Robustness (T06-T10)
 

@@ -79,6 +79,45 @@ request_pinned_lease() {
     get_client_ip "$client"
 }
 
+# Start a dhcpcd daemon that only accepts one server, from a clean state;
+# unlike request_pinned_lease, the daemon stays to release the lease
+# Usage: ip=$(request_held_lease "ha-client1" "192.168.50.10")
+request_held_lease() {
+    exec_client "$1" sh -c 'killall -9 dhcpcd; ip addr flush dev eth0; rm -rf /var/lib/dhcpcd/*' >/dev/null 2>&1
+    exec_client "$1" dhcpcd -4 -t 20 --whitelist "$2" eth0 >/dev/null 2>&1
+    get_client_ip "$1"
+}
+
+# Release a lease held by request_held_lease; the daemon exits
+# Usage: release_held_lease "ha-client1"
+release_held_lease() {
+    exec_client "$1" dhcpcd -4 -k eth0 >/dev/null 2>&1
+}
+
+# Print the MAC dnsmasq holds for a lease
+# Usage: mac=$(lease_mac "node" "192.168.50.100")
+lease_mac() {
+    exec_node "$1" awk -v ip="$2" '$3 == ip {print $2}' /tmp/dhcp.leases 2>/dev/null
+}
+
+# Check that no node failed to delete a lease, or queued a deletion
+# for retry, since t0
+# Usage: check_no_delete_retry "$ip" "$t0"
+check_no_delete_retry() {
+    local ip="$1" t0="$2" node result=0
+    for node in "$NODE1" "$NODE2"; do
+        if log_since "$node" "$t0" | \
+           grep -e "Failed to delete lease $ip[,:]" -e "for retry: $ip " | grep -q .; then
+            fail "$node failed to delete $ip or queued it for retry"
+            log_since "$node" "$t0" | grep "lease-sync\[" | grep -F "$ip"
+            result=1
+        else
+            pass "No delete failure or retry for $ip on $node"
+        fi
+    done
+    return $result
+}
+
 # Print the hostname dnsmasq holds for a lease ("*" when none)
 # Usage: name=$(lease_hostname "node" "192.168.50.100")
 lease_hostname() {
@@ -327,43 +366,103 @@ test_lease_count_consistency() {
     fi
 }
 
+# A release on the serving node removes the lease from both nodes. The
+# peer's own deletion echoes a DELETE back to the serving node, where
+# the lease is already gone: that must count as done, not be retried.
 test_lease_release_sync() {
     subheader "Lease Release Sync"
 
-    # Get client1's current IP
-    local client_ip
+    local client_ip server t0 node result=0
     client_ip=$(get_client_ip "$CLIENT1")
-
     if [ -z "$client_ip" ]; then
-        skip "Release sync test" "client has no IP"
-        return 0
+        fail "Cannot test release: $CLIENT1 has no IP"
+        return 1
     fi
 
+    t0=$(exec_node "$NODE1" date +%s)
     info "Releasing lease for $CLIENT1 ($client_ip)..."
     dhcp_release "$CLIENT1"
 
-    # Poll for lease removal from both nodes
     wait_for_lease_removal_all "$client_ip" "lease_exists" 10
-
-    # Report final state
     for node in "$NODE1" "$NODE2"; do
-        if ! lease_exists "$node" "$client_ip"; then
-            info "Lease removed from $node"
+        if lease_exists "$node" "$client_ip"; then
+            fail "Lease $client_ip still on $node after release"
+            result=1
         else
-            info "Lease still exists on $node"
+            pass "Lease $client_ip removed from $node"
         fi
     done
 
-    # Lease should be removed from both nodes
-    if [ "$REMOVAL_COUNT" -ge 2 ]; then
-        pass "Lease release synced to both nodes"
-    elif [ "$REMOVAL_COUNT" -eq 1 ]; then
-        fail "Lease release only removed from 1 node (sync broken)"
-        return 1
-    else
-        fail "Lease release not processed by any node"
+    # The node that got the DHCPRELEASE served the lease
+    server=""
+    for node in "$NODE1" "$NODE2"; do
+        log_since "$node" "$t0" | grep -q "DHCPRELEASE(.*) $client_ip " &&
+            server="$node"
+    done
+    if [ -z "$server" ]; then
+        fail "No node logged the release of $client_ip"
         return 1
     fi
+
+    # A failed deletion of the echo is logged right after it
+    if ! wait_for "DELETE echo on $server" 5 \
+            "log_since $server $t0 | grep -q 'Received DELETE for $client_ip from'"; then
+        fail "$server received no DELETE echo for $client_ip"
+        result=1
+    fi
+    check_no_delete_retry "$client_ip" "$t0" || result=1
+
+    return $result
+}
+
+# Release then immediate re-lease of the same address: no deletion
+# left over from the release may remove the new lease
+test_release_then_lease() {
+    subheader "Release Then Immediate Re-lease"
+
+    local mac ip ip2 t0 node elapsed result=0
+    mac=$(get_client_mac "$CLIENT1")
+    ip=$(request_held_lease "$CLIENT1" "$NODE1_CLIENT_IP")
+    if [ -z "$ip" ] || ! wait_for_lease "$NODE2" "$ip" "$SYNC_TIMEOUT"; then
+        fail "$CLIENT1 lease ${ip:-none} not served by $NODE1 and synced"
+        return 1
+    fi
+    pass "$CLIENT1 lease $ip on both nodes"
+
+    t0=$(exec_node "$NODE1" date +%s)
+    release_held_lease "$CLIENT1"
+    ip2=$(request_held_lease "$CLIENT1" "$NODE1_CLIENT_IP")
+    if [ "$ip2" != "$ip" ]; then
+        fail "Re-lease got ${ip2:-no address}, expected $ip"
+        release_held_lease "$CLIENT1"
+        return 1
+    fi
+    if ! log_since "$NODE1" "$t0" | grep -q "DHCPRELEASE(.*) $ip "; then
+        fail "$NODE1 logged no release of $ip before the re-lease"
+        result=1
+    else
+        pass "$CLIENT1 released and leased $ip again"
+    fi
+
+    # Past the retries a failed deletion would make (+5, +10, +15s).
+    # A missing lease with no retry logged is the echoed DELETE racing
+    # the re-lease, an accepted race; a DELETE answered "not found" and
+    # retried by address shows up as a retry.
+    elapsed=$(( $(exec_node "$NODE1" date +%s) - t0 ))
+    [ "$elapsed" -lt 22 ] && sleep $((22 - elapsed))
+    for node in "$NODE1" "$NODE2"; do
+        if [ "$(lease_mac "$node" "$ip")" = "$mac" ]; then
+            pass "New lease $ip present on $node after 22s"
+        else
+            fail "New lease $ip missing from $node after 22s"
+            result=1
+        fi
+    done
+    check_no_delete_retry "$ip" "$t0" || result=1
+
+    release_held_lease "$CLIENT1"
+    wait_for_lease_removal_all "$ip" "lease_exists" 10 || true
+    return $result
 }
 
 # Nameless clients must stay nameless on the peer; a leaked name would
@@ -472,10 +571,8 @@ main() {
     # between sync operations; exact consistency is eventually achieved
     run_nonfatal test_lease_count_consistency "timing differences in sync propagation"
 
-    # Non-fatal: lease release requires dnsmasq to process the release and
-    # lease-sync to propagate; may need full lease expiry time in some cases
-    run_nonfatal test_lease_release_sync "release sync may require lease expiry"
-
+    test_lease_release_sync || result=1
+    test_release_then_lease || result=1
     test_nameless_leases || result=1
     test_synced_hostname || result=1
 
