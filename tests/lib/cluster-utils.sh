@@ -1080,26 +1080,6 @@ get_all_leases() {
     exec_node "$node" ubus call dnsmasq get_leases 2>/dev/null || echo '{"leases":[]}'
 }
 
-# Inject a lease directly into dnsmasq (bypassing lease-sync)
-# This simulates stale data that should be cleaned up by startup reconciliation
-# Usage: inject_lease_directly "node1" "192.168.50.100" "aa:bb:cc:dd:ee:ff" "test-host" "3600"
-inject_lease_directly() {
-    local node="$1"
-    local ip="$2"
-    local mac="$3"
-    local hostname="${4:-*}"
-    local expiry="${5:-3600}"
-
-    # Calculate absolute expiry time
-    local now
-    now=$(exec_node "$node" date +%s)
-    local abs_expiry=$((now + expiry))
-
-    # Write directly to dhcp.leases file (bypasses lease-sync)
-    # Format: <expiry> <mac> <ip> <hostname> <client-id>
-    exec_node "$node" sh -c "echo '$abs_expiry $mac $ip $hostname *' >> /tmp/dhcp.leases"
-}
-
 # Get lease count via ubus (more authoritative than file parsing)
 # Usage: count=$(get_ubus_lease_count "node1")
 get_ubus_lease_count() {

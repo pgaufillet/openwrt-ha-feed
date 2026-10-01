@@ -89,7 +89,7 @@ tests/
 │   ├── 04-config-sync.sh           # T04: Configuration sync
 │   ├── 05-lease-sync.sh            # T05: DHCP lease sync
 │   ├── 06-service-recovery.sh      # T06: Service crash recovery
-│   ├── 07-startup-reconciliation.sh # T07: Stale lease cleanup
+│   ├── 07-startup-reconciliation.sh # T07: Leases kept across lease-sync restarts
 │   ├── 08-injection-retry-queue.sh  # T08: Retry queue validation
 │   ├── 09-network-partition.sh     # T09: Split-brain recovery
 │   ├── 10-encryption.sh            # T10: Encryption validation
@@ -356,7 +356,7 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 | ID | Scenario | Validates |
 |----|----------|-----------|
 | T06 | Service Recovery | procd respawns crashed services (keepalived, owsync, lease-sync) |
-| T07 | Startup Reconciliation | Stale leases deleted when lease-sync restarts |
+| T07 | Startup Reconciliation | A lease-sync restart keeps the dnsmasq leases (unknown local lease, peer down, key changed node by node, both nodes restarted); unknown leases are not announced at startup; a peer lease replaces a contradicting local one |
 | T08 | Injection Retry Queue | Lease injection retries when dnsmasq unavailable |
 | T09 | Network Partition | Cluster reconverges after split-brain |
 | T10 | Encryption | AES-256-GCM encryption active, no plaintext in traffic |
@@ -625,7 +625,7 @@ The test framework in `lib/` provides:
 - Process management (`kill_process`, `wait_for_respawn`)
 - Network partition (`create_network_partition`, `heal_network_partition`)
 - Traffic capture (`capture_traffic`, `verify_no_plaintext`)
-- Advanced lease helpers (`get_all_leases`, `inject_lease_directly`)
+- Advanced lease helpers (`get_all_leases`)
 
 ### Writing New Tests
 
