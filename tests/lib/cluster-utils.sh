@@ -914,6 +914,18 @@ print_cluster_status() {
 }
 
 # ============================================
+# Syslog Helpers
+# ============================================
+
+# Print a node's syslog lines logged at or after an epoch time
+# Usage: log_since "node" "$t0"
+log_since() {
+    exec_node "$1" logread -t 2>/dev/null | \
+        awk -v t0="$2" 'match($0, /\[[0-9]+\.[0-9]+\]/) &&
+            substr($0, RSTART + 1, RLENGTH - 2) + 0 >= t0'
+}
+
+# ============================================
 # Process Management Helpers
 # ============================================
 
