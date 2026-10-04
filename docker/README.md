@@ -103,22 +103,26 @@ Available packages: `dnsmasq-ha`, `owsync`, `lease-sync`, `ha-cluster`,
 
 ## Signing a package index
 
-To produce a signed feed index (so routers can update from an HTTP
-server), mount a [usign](https://openwrt.org/docs/guide-user/security/keygen)
-private key and set `SIGN_KEY`:
+To produce a signed package index (so routers can update from an HTTP
+server), mount the private signing key and set `SIGN_KEY`. On 25.12 and
+later the key is an apk ECDSA key (see the top-level README for how to
+generate it):
 
 ```bash
 docker run --rm \
   -v "$PWD/output:/output" \
-  -v "$PWD/keys/ha_feed.sec:/keys/ha_feed.sec:ro" \
-  -e SIGN_KEY=/keys/ha_feed.sec \
+  -v "$PWD/keys/ha_feed_apk.sec:/keys/ha_feed_apk.sec:ro" \
+  -e SIGN_KEY=/keys/ha_feed_apk.sec \
   ha-feed-build
 ```
 
-`Packages`, `Packages.gz`, `Packages.sig` and `index.json` are copied into
-`./output` alongside the packages. See the "Building and Hosting Your Own
-Package Repository" section of the top-level [README](../README.md) for how to
-deploy and consume the signed feed.
+The signed index `packages.adb` (and `index.json`) is copied into
+`./output` alongside the packages. On 24.10 and earlier, `SIGN_KEY` is a
+[usign](https://openwrt.org/docs/guide-user/security/keygen) private key
+and the index files are `Packages`, `Packages.gz`, `Packages.sig` and
+`index.json`. See the "Building and Hosting Your Own Package Repository"
+section of the top-level [README](../README.md) for how to deploy and
+consume the signed feed.
 
 ## Building from a local checkout
 

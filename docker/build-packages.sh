@@ -21,9 +21,11 @@
 #
 # Environment variables:
 #   JOBS       Parallel build jobs (default: number of CPUs).
-#   SIGN_KEY   Path (inside the container) to a usign private key. When set, a
-#              signed package index is generated. Mount it read-only, e.g.
-#              -v "$PWD/keys/ha_feed.sec:/keys/ha_feed.sec:ro" -e SIGN_KEY=/keys/ha_feed.sec
+#   SIGN_KEY   Path (inside the container) to the index signing key: an apk
+#              ECDSA private key on 25.12 and later, a usign key on 24.10
+#              and earlier. When set, a signed package index is generated.
+#              Mount it read-only, e.g. -v "$PWD/keys/ha_feed_apk.sec:/keys/ha_feed_apk.sec:ro"
+#              -e SIGN_KEY=/keys/ha_feed_apk.sec
 #   VERBOSE    Set to 1 for `make ... V=s` verbose output.
 
 set -euo pipefail
@@ -150,13 +152,14 @@ if [ -n "${SIGN_KEY:-}" ]; then
         exit 1
     fi
     echo "  Signing package index with $SIGN_KEY..."
-    make package/index BUILD_KEY="$SIGN_KEY"
+    make package/index BUILD_KEY="$SIGN_KEY" BUILD_KEY_APK_SEC="$SIGN_KEY"
 fi
 
 if [ -d "$OUTPUT_DIR" ]; then
     # Preserve the bin/packages/<arch>/ha_feed/ layout under /output.
     if (cd bin/packages && find . -type f \
-            \( "${match[@]}" -o -name 'Packages*' -o -name 'index.json' \) \
+            \( "${match[@]}" -o -name 'Packages*' -o -name 'packages.adb' \
+               -o -name 'index.json' \) \
             -exec cp --parents -t "$OUTPUT_DIR" {} +); then
         echo "  Copied artifacts to $OUTPUT_DIR"
     else
