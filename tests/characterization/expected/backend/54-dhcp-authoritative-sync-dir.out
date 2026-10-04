@@ -127,6 +127,8 @@ reload_trigger [ha-cluster]
 == log
 ha-cluster|daemon.info|Starting HA cluster
 ha-cluster|daemon.info|Applying HA cluster configuration
+ha-cluster|daemon.warning|dnsmasq is authoritative while several nodes serve DHCP: they NAK each other's clients
+ha-cluster|daemon.warning|Set authoritative '0' in /etc/config/dhcp on every node
 ha-cluster|daemon.info|Taking over service management from standalone init scripts
 ha-cluster|daemon.info|Disabled standalone service: keepalived
 ha-cluster|daemon.info|Disabled standalone service: owsync

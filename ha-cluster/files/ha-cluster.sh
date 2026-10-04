@@ -853,65 +853,6 @@ ha_validate_config() {
 	return $errors
 }
 
-_ha_sync_path=""
-_ha_sync_path_matched=0
-_ha_match_sync_pattern() {
-	local pattern="$1"
-
-	# owsync trims its config values
-	pattern="${pattern#"${pattern%%[![:space:]]*}"}"
-	pattern="${pattern%"${pattern##*[![:space:]]}"}"
-
-	# Same as owsync's fnmatch(pattern, path, 0): '*' also matches '/'
-	case "$_ha_sync_path" in
-		$pattern) _ha_sync_path_matched=1 ;;
-	esac
-}
-
-_ha_match_group_includes() {
-	local section="$1"
-	local enabled
-
-	config_get_bool enabled "$section" enabled 1
-	[ "$enabled" -eq 0 ] && return 0
-
-	config_list_foreach "$section" config_files _ha_match_sync_pattern
-}
-
-_ha_match_excludes() {
-	config_list_foreach "$1" file _ha_match_sync_pattern
-}
-
-# Usage: ha_file_synced <absolute path> (ha-cluster config loaded)
-# owsync runs and would sync the file: it matches the include and exclude
-# patterns against regular files only, by path relative to sync_dir, and
-# excludes win.
-ha_file_synced() {
-	local path="$1"
-	local sync_dir
-
-	ha_owsync_wanted && [ -x "$OWSYNC_BIN" ] || return 1
-
-	config_get sync_dir config sync_dir "/etc/config"
-	sync_dir="${sync_dir#"${sync_dir%%[![:space:]]*}"}"
-	sync_dir="${sync_dir%"${sync_dir##*[![:space:]]}"}"
-	while [ "${sync_dir%/}" != "$sync_dir" ]; do
-		sync_dir="${sync_dir%/}"
-	done
-
-	case "$path" in
-		"$sync_dir"/*) _ha_sync_path="${path#"$sync_dir"/}" ;;
-		*) return 1 ;;
-	esac
-
-	_ha_sync_path_matched=0
-	config_foreach _ha_match_excludes exclude
-	[ "$_ha_sync_path_matched" -eq 0 ] || return 1
-
-	config_foreach _ha_match_group_includes sync_group
-	[ "$_ha_sync_path_matched" -eq 1 ]
-}
-
 _ha_dnsmasq_authoritative=0
 _ha_check_dnsmasq_authoritative() {
 	local authoritative
@@ -922,11 +863,22 @@ _ha_check_dnsmasq_authoritative() {
 
 # Usage: ha_dhcp_authoritative_conflict (ha-cluster config loaded, and
 # reloaded on return)
-# A dnsmasq section is authoritative while several nodes serve DHCP, as a
-# synced /etc/config/dhcp or lease sync implies: an authoritative dnsmasq
-# NAKs every request carrying another node's server-id.
+# A dnsmasq section is authoritative while several nodes serve DHCP, as
+# lease sync or the enabled dhcp sync group listing files implies: an
+# authoritative dnsmasq NAKs every request carrying another node's
+# server-id.
 ha_dhcp_authoritative_conflict() {
-	ha_lease_sync_active || ha_file_synced /etc/config/dhcp || return 1
+	local group_type group_enabled group_files
+
+	if ! ha_lease_sync_active; then
+		[ -x "$OWSYNC_BIN" ] || return 1
+		config_get group_type dhcp TYPE ""
+		[ "$group_type" = "sync_group" ] || return 1
+		config_get_bool group_enabled dhcp enabled 1
+		config_get group_files dhcp config_files ""
+		[ "$group_enabled" -eq 1 ] && [ -n "$group_files" ] &&
+			ha_has_sync_peer || return 1
+	fi
 
 	_ha_dnsmasq_authoritative=0
 	config_load dhcp

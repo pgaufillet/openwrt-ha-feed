@@ -26,9 +26,9 @@ config peer 'peer1'
 	option address '172.30.0.11'
 
 config service 'dhcp'
-	option enabled '1'
+	option enabled '0'
 	option sync_leases '0'
-	list config_files '*'
+	list config_files 'dhcp'
 
 config service 'firewall'
 	option enabled '0'
@@ -42,6 +42,9 @@ config exclude
 	list file 'system'
 	list file 'owsync'
 	list file 'ha-cluster'
+
+config service 'shared'
+	list config_files 'dhcp'
 
 package dhcp
 
@@ -86,8 +89,8 @@ config peer 'peer1'
 	option address '172.30.0.11'
 
 config sync_group 'dhcp'
-	option enabled '1'
-	list config_files '*'
+	option enabled '0'
+	list config_files 'dhcp'
 
 config sync_group 'firewall'
 	option enabled '0'
@@ -101,6 +104,9 @@ config exclude
 	list file 'system'
 	list file 'owsync'
 	list file 'ha-cluster'
+
+config sync_group 'shared'
+	list config_files 'dhcp'
 
 == start_service
 instance [keepalived]
@@ -125,8 +131,6 @@ reload_trigger [ha-cluster]
 == log
 ha-cluster|daemon.info|Starting HA cluster
 ha-cluster|daemon.info|Applying HA cluster configuration
-ha-cluster|daemon.warning|dnsmasq is authoritative while several nodes serve DHCP: they NAK each other's clients
-ha-cluster|daemon.warning|Set authoritative '0' in /etc/config/dhcp on every node
 ha-cluster|daemon.info|Taking over service management from standalone init scripts
 ha-cluster|daemon.info|Disabled standalone service: keepalived
 ha-cluster|daemon.info|Disabled standalone service: owsync
@@ -195,7 +199,7 @@ encryption_key=7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e
 peer=172.30.0.11
 
 # Include patterns (sync these files)
-include=*
+include=dhcp
 
 # Exclude patterns (never sync these)
 exclude=network
@@ -240,8 +244,6 @@ rc=0
 ha-cluster|daemon.info|Reloading HA cluster configuration
 ha-cluster|daemon.info|Starting HA cluster
 ha-cluster|daemon.info|Applying HA cluster configuration
-ha-cluster|daemon.warning|dnsmasq is authoritative while several nodes serve DHCP: they NAK each other's clients
-ha-cluster|daemon.warning|Set authoritative '0' in /etc/config/dhcp on every node
 ha-cluster|daemon.info|Taking over service management from standalone init scripts
 ha-cluster|daemon.info|Generating keepalived configuration for node: ha-char
 ha-cluster|daemon.info|Keepalived configuration generated at /tmp/ha-cluster/keepalived.conf
@@ -306,7 +308,7 @@ encryption_key=7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e
 peer=172.30.0.11
 
 # Include patterns (sync these files)
-include= dhc? 
+include=dhcp
 
 # Exclude patterns (never sync these)
 exclude=network
