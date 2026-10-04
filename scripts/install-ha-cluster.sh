@@ -180,7 +180,7 @@ for pkg in dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster; do
 done
 
 # Check dnsmasq is running
-if pgrep -x dnsmasq >/dev/null 2>&1; then
+if pgrep dnsmasq >/dev/null 2>&1; then
 	info "dnsmasq is running"
 else
 	warn "dnsmasq is not running — check: /etc/init.d/dnsmasq start"
