@@ -62,12 +62,6 @@ return view.extend({
 		o.value('3', _('Debug'));
 		o.default = '2';
 
-		return m.render().then(function(mapEl) {
-			if (['1', 'on', 'true', 'yes', 'enabled'].indexOf(uci.get('ha-cluster', 'config', 'lease_sync')) === -1)
-				mapEl.insertBefore(E('div', { 'class': 'alert-message info' }, [
-					E('p', {}, _('Lease sync is off. Turn it on in General \u203a DHCP Leases; these settings apply once it runs.'))
-				]), mapEl.querySelector('.cbi-section'));
-			return mapEl;
-		});
+		return m.render();
 	}
 });
