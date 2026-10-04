@@ -9,15 +9,17 @@
 #     working-tree uci-defaults script)
 #   - missing: pages rendered with the lease-sync or owsync binary removed
 #   - action: UCI changes staged by scripted edits (Save, never Apply)
+#   - hint: where General places the DHCP authoritative hint, and its
+#     absence from Status, with dnsmasq made authoritative
 #   - layout: overflow, overlap, alignment, contrast of app colours and
 #     unlabeled narrow cells, at 1280 and 375 px, light and dark
 #
 # and checks that the Status page shows what "ubus call ha-cluster status"
 # returns and that no page logs an error to the console.
 #
-# The node config is restored at the end; nothing is applied, so the
-# running daemons are untouched. Screenshots are left in logs/luci for
-# review.
+# The node config (ha-cluster, dhcp) is restored at the end; nothing is
+# applied, so the running daemons are untouched. Screenshots are left in
+# logs/luci for review.
 #
 # CHAR_UPDATE=1 rewrites the expected files instead of comparing.
 # LUCI_MIGRATION overrides the migration script; empty skips migration.
@@ -125,7 +127,7 @@ test_no_console_errors() {
     pass "No console errors"
 }
 
-# Usage: test_compare snapshot|missing|action|layout
+# Usage: test_compare snapshot|missing|action|hint|layout
 test_compare() {
     local kind="$1"
     local rc=0
@@ -184,7 +186,7 @@ main() {
 
     test_status_matches_rpcd || result=1
     test_no_console_errors || result=1
-    for kind in snapshot missing action layout; do
+    for kind in snapshot missing action hint layout; do
         test_compare "$kind" || result=1
     done
 

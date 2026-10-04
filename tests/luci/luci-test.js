@@ -13,6 +13,8 @@
 //   action/<name>.out       UI -> UCI: changes staged by a scripted edit
 //                           (Save, never Apply), plus notifications and
 //                           invalid fields
+//   hint/<name>.out         sync sections of General and the Status page
+//                           with an authoritative dnsmasq
 //   layout/<page>.out       layout findings (overflow, overlap, alignment,
 //                           contrast, unlabeled narrow cells) at 1280 and
 //                           375 px, light and dark
@@ -40,7 +42,7 @@ const NODE = args.node;
 const BASE = args.url;
 const OUT = args.out;
 const MIGRATION = args.migration || '';
-const PHASES = (args.phases || 'status,snapshot,missing,action,layout').split(',');
+const PHASES = (args.phases || 'status,snapshot,missing,action,hint,layout').split(',');
 const ONLY = args.only ? args.only.split(',') : null;
 const RUNTIME = process.env.CONTAINER_RUNTIME || 'podman';
 const FIXTURES = path.join(__dirname, 'fixtures');
@@ -542,6 +544,47 @@ async function runAction(browser, [name, fixture, view, steps]) {
 }
 
 // ============================================
+// DHCP authoritative hint
+// ============================================
+
+// Each case: [name, fixture, node commands run after the fixture], with
+// an authoritative dnsmasq. The hint goes under the DHCP config sync when
+// that applies, else under lease sync; never on Status.
+const HINTS = [
+	['dhcp-sync', 'full', ''],
+	['lease-sync', 'full', 'uci set ha-cluster.dhcp.enabled=0 && uci commit ha-cluster']
+];
+
+async function hintCase(browser, [name, fixture, commands]) {
+	applyFixture(fixture);
+	if (commands)
+		sh(commands);
+	const page = await newPage(browser, 1280, 'light', 'hint ' + name);
+	let text = '';
+	for (const view of ['simple', 'status']) {
+		text += `==== ${view}\n`;
+		try {
+			await openPage(page, view);
+		} catch (e) {
+			text += '(page did not load)\n';
+			continue;
+		}
+		const lines = (await serializeIn(page, '#view')).split('\n');
+		if (view === 'simple') {
+			const start = lines.indexOf('h3: Configuration Files');
+			text += (start < 0 ? '(no Configuration Files section)' : lines.slice(start).join('\n')) + '\n';
+		} else {
+			// Headings show the page rendered
+			const hint = lines.filter(l => /authoritative/i.test(l));
+			text += lines.filter(l => /^h[23]: /.test(l)).join('\n') + '\n' +
+				(hint.length ? hint.join('\n') : '(no mention of authoritative)') + '\n';
+		}
+	}
+	await page.context().close();
+	return text;
+}
+
+// ============================================
 // Layout checks
 // ============================================
 
@@ -1024,6 +1067,17 @@ async function main() {
 		for (const action of ACTIONS.filter(a => !ONLY || ONLY.includes(a[0])))
 			write(`action/${action[0]}.out`, await runAction(browser, action));
 
+		if (PHASES.includes('hint')) {
+			sh('cp /etc/config/dhcp /tmp/t25-dhcp.orig && ' +
+				'uci set dhcp.@dnsmasq[0].authoritative=1 && uci commit dhcp');
+			try {
+				for (const hint of HINTS.filter(h => !ONLY || ONLY.includes(h[0])))
+					write(`hint/${hint[0]}.out`, await hintCase(browser, hint));
+			} finally {
+				sh('mv /tmp/t25-dhcp.orig /etc/config/dhcp');
+			}
+		}
+
 		applyFixture('full');
 		if (PHASES.includes('layout'))
 		for (const view of PAGES.filter(v => !ONLY || ONLY.includes(v))) {
@@ -1036,6 +1090,7 @@ async function main() {
 		sh('cp /tmp/t25-ha-cluster.orig /etc/config/ha-cluster && rm -f /tmp/t25-ha-cluster.orig');
 		for (const [daemon, bin] of Object.entries(DAEMONS))
 			sh(`[ -e /tmp/t25-${daemon} ] && mv /tmp/t25-${daemon} ${bin}; true`);
+		sh('[ -e /tmp/t25-dhcp.orig ] && mv /tmp/t25-dhcp.orig /etc/config/dhcp; true');
 		fs.writeFileSync(path.join(OUT, 'layout-details.log'), log.join('\n') + '\n');
 		write('computed/console.out', consoleLog.join('\n'));
 	}

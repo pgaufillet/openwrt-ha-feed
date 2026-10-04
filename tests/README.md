@@ -458,6 +458,9 @@ T25 drives the LuCI pages of `ha-node1` with Playwright
   removed.
 - `action`: UCI changes staged by scripted edits. Pages are saved, never
   applied, so the running daemons are untouched.
+- `hint`: the sync sections of the General page and the Status page with
+  dnsmasq made authoritative: the hint sits under the DHCP config sync
+  when that applies, else under lease sync, and never on Status.
 - `layout`: overflow, overlap, alignment (labels, fields, help text,
   table columns, row actions, headings), contrast of colours set by the
   app, unlabeled cells in narrow layout, broken images, stored values
