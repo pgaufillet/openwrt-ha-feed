@@ -7,7 +7,6 @@
     },
     "peers": [],
     "state": "HEALTHY",
-    "dhcp_authoritative_conflict": false,
     "services": {
         "keepalived": {
             "required": true,

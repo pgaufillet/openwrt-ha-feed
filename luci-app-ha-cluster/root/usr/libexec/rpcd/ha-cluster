@@ -13,8 +13,6 @@ case "$1" in
 		json_close_object
 		json_add_object "status"
 		json_close_object
-		json_add_object "get_warnings"
-		json_close_object
 		json_add_object "apply"
 		json_close_object
 		json_add_object "get_source_for_peer"
@@ -52,7 +50,6 @@ case "$1" in
 				lease_sync_required=0
 				owsync_wanted=0
 				lease_sync_wanted=0
-				dhcp_authoritative_conflict=0
 
 				ha_enabled=$(get_bool "$(uci -q get ha-cluster.config.enabled)" 0)
 
@@ -132,7 +129,6 @@ case "$1" in
 					config_load ha-cluster
 					ha_owsync_wanted && owsync_wanted=1
 					ha_lease_sync_wanted && lease_sync_wanted=1
-					ha_dhcp_authoritative_conflict && dhcp_authoritative_conflict=1
 
 					if ! pgrep "keepalived" >/dev/null 2>&1; then
 						services_ok=0
@@ -216,7 +212,6 @@ case "$1" in
 					cluster_state="HEALTHY"
 				fi
 				json_add_string state "$cluster_state"
-				json_add_boolean dhcp_authoritative_conflict "$dhcp_authoritative_conflict"
 
 
 				json_add_object services
@@ -301,23 +296,6 @@ case "$1" in
 				json_add_int lease_last_sync "$lease_last_sync"
 				json_close_object
 
-				json_dump
-				;;
-
-			get_warnings)
-				# Configuration only: no peer ping
-				dhcp_authoritative_conflict=0
-				dhcp_synced=0
-
-				if [ "$(get_bool "$(uci -q get ha-cluster.config.enabled)" 0)" = "1" ]; then
-					config_load ha-cluster
-					ha_file_synced /etc/config/dhcp && dhcp_synced=1
-					ha_dhcp_authoritative_conflict && dhcp_authoritative_conflict=1
-				fi
-
-				json_init
-				json_add_boolean dhcp_authoritative_conflict "$dhcp_authoritative_conflict"
-				json_add_boolean dhcp_synced "$dhcp_synced"
 				json_dump
 				;;
 

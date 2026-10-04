@@ -111,14 +111,6 @@ return view.extend({
 		return _('Disabled');
 	},
 
-	renderAuthoritativeHint: function() {
-		return E('div', { 'class': 'alert-message warning' }, [
-			E('h4', {}, _('dnsmasq is authoritative')),
-			E('p', {}, _('Several nodes serve DHCP, so an authoritative dnsmasq rejects the clients of the other nodes. Turn off Authoritative in DHCP and DNS on every node.')),
-			E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/network/dhcp') }, _('Go to DHCP and DNS…')))
-		]);
-	},
-
 	renderStatus: function(data, owsyncInstalled, leaseSyncInstalled) {
 		var status = data || {};
 		var services = status.services || {};
@@ -164,11 +156,7 @@ return view.extend({
 		var instances = status.instances || {};
 		var instanceNames = Object.keys(instances);
 
-		var warnings = [];
-		if (status.dhcp_authoritative_conflict === true)
-			warnings.push(this.renderAuthoritativeHint());
-
-		return warnings.concat([
+		return [
 			E('h3', {}, _('Cluster Status')),
 
 			E('div', { 'class': 'cbi-section', 'style': 'display: flex; gap: 2em;' }, [
@@ -267,7 +255,7 @@ return view.extend({
 					}))) :
 					E('div', { 'class': 'alert-message warning' }, _('No peers configured'))
 			])
-		]);
+		];
 	},
 
 	render: function(data) {

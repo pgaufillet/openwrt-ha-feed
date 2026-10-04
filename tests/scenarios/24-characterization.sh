@@ -2,16 +2,16 @@
 # 24-characterization.sh - Test T24: Backend, rpcd, ACL and Migration Characterization
 #
 # Freezes the observable behaviour of the ha-cluster backend and of the
-# rpcd status and get_warnings methods over a matrix of configurations,
-# so that any change to it shows up as a diff against the expected
-# output:
+# rpcd status and get_source_for_peer methods over a matrix of
+# configurations, so that any change to it shows up as a diff against
+# the expected output:
 #
 #   - backend: start_service result, procd instances, log lines, generated
 #     keepalived/owsync/lease-sync configs, dnsmasq overlay, saved
 #     standalone-service state
-#   - rpcd: "status", "get_warnings" or "get_source_for_peer" JSON for a
-#     given config, set of running daemons, reachable peers, keepalived
-#     dump, route and device addresses
+#   - rpcd: "status" or "get_source_for_peer" JSON for a given config,
+#     set of running daemons, reachable peers, keepalived dump, route
+#     and device addresses
 #   - acl: what a LuCI user holding only the luci-base and app ACL groups
 #     may call, through a real rpcd session
 #   - migration: /etc/config/ha-cluster before and after the uci-defaults

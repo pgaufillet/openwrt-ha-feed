@@ -22,12 +22,6 @@ var callGenerateKey = rpc.declare({
 	method: 'generate_key'
 });
 
-var callGetWarnings = rpc.declare({
-	object: 'ha-cluster',
-	method: 'get_warnings',
-	expect: { }
-});
-
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -36,7 +30,7 @@ return view.extend({
 			network.getDevices(),
 			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null),
 			L.resolveDefault(fs.stat('/usr/bin/owsync'), null),
-			L.resolveDefault(callGetWarnings(), {})
+			L.resolveDefault(uci.load('dhcp'), null)
 		]);
 	},
 
@@ -45,7 +39,6 @@ return view.extend({
 		var netDevs = data[2] || [];
 		var leaseSyncInstalled = data[3] != null;
 		var owsyncInstalled = data[4] != null;
-		var warnings = data[5] || {};
 		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var m, s, o;
 
@@ -565,11 +558,26 @@ return view.extend({
 
 		var groups = uci.sections('ha-cluster', 'sync_group');
 
-		// Backend condition, on the committed configuration; shown once, under
-		// the DHCP config sync when it applies, else under lease sync
-		var hintUnderDhcp = owsyncInstalled && warnings.dhcp_synced === true;
+		// Same rule as the backend: an authoritative dnsmasq while several
+		// nodes serve DHCP. Shown once, under the DHCP config sync when it
+		// applies, else under lease sync
+		var hasSyncPeer = uci.sections('ha-cluster', 'peer').some(function(peer) {
+			return !getBool(peer.vrrp_only, false) && !!peer.address;
+		});
+		var dhcpGroup = uci.get('ha-cluster', 'dhcp');
+		var dhcpFiles = dhcpGroup ? L.toArray(dhcpGroup.config_files) : [];
+		var hintUnderDhcp = owsyncInstalled && hasSyncPeer && dhcpGroup != null &&
+			dhcpGroup['.type'] === 'sync_group' && groupEnabled(dhcpGroup) &&
+			dhcpFiles.length > 0;
+		var leaseSyncActive = leaseSyncInstalled && hasSyncPeer &&
+			getBool(uci.get('ha-cluster', 'config', 'lease_sync'), false);
+		var dhcpAuthoritative = uci.sections('dhcp', 'dnsmasq').some(function(dnsmasq) {
+			return getBool(dnsmasq.authoritative, false);
+		});
+		var authoritativeConflict = getBool(uci.get('ha-cluster', 'config', 'enabled'), false) &&
+			dhcpAuthoritative && (hintUnderDhcp || leaseSyncActive);
 		var authoritativeHint = function() {
-			if (warnings.dhcp_authoritative_conflict !== true)
+			if (!authoritativeConflict)
 				return;
 			o = s.option(form.DummyValue, '_dhcp_authoritative');
 			o.renderWidget = function() {

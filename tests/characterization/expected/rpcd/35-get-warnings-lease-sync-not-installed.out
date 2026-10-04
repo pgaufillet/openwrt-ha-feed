@@ -1,5 +1,0 @@
-== get_warnings rc=0
-{
-    "dhcp_authoritative_conflict": true,
-    "dhcp_synced": true
-}
