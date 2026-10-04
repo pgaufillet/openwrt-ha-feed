@@ -508,15 +508,19 @@ packages from `packages/`. It checks that:
   by the new one (T24 case `10`); an edited one is kept and migrated, and
   `apk` leaves the new shipped file next to it as `ha-cluster.apk-new`;
 - the ha-cluster procd instances, daemons and generated configs follow
-  the new rules, keepalived holds the VIP, and a restart changes nothing.
-  The upgrade restarts owsync and lease-sync on a config change but
-  leaves keepalived running, so its generated config must not change;
+  the new rules, keepalived holds the VIP, and a restart regenerates the
+  same configs and restarts keepalived. procd restarts owsync and
+  lease-sync on a config change, and sends keepalived SIGHUP; it
+  restarts keepalived when its instance parameters change. When the
+  generated `keepalived.conf` changed, keepalived must have started or
+  logged `Reloading` after the config was generated, so that it runs the
+  new one;
 - adding the same packages again runs nothing, and `apk fix --reinstall
   ha-cluster` (which restores the migration file and runs post-upgrade)
-  changes neither the config, the daemons nor the boot state, and starts
-  ha-cluster once. OpenWrt's `apk` cannot index the package files, so the
-  test puts the installed one in `/etc/apk/cache` under the name `apk fix`
-  looks for.
+  changes neither the config, the daemons nor the boot state, starts
+  ha-cluster once, and neither restarts nor reloads keepalived. OpenWrt's
+  `apk` cannot index the package files, so the test puts the installed
+  one in `/etc/apk/cache` under the name `apk fix` looks for.
 
 A last case uses the T24 `13-production-node` config with ha-cluster and
 the standalone lease-sync disabled and ha-cluster stopped: the upgrade and

@@ -38,6 +38,8 @@ start_service() {
 	procd_set_param command /usr/sbin/keepalived
 	procd_append_param command -n  # don't daemonize
 	procd_append_param command -f "$KEEPALIVED_CONF"
+	procd_set_param file "$KEEPALIVED_CONF"
+	procd_set_param reload_signal HUP
 	procd_set_param respawn
 	procd_set_param stdout 1
 	procd_set_param stderr 1
@@ -106,10 +108,9 @@ reload_service() {
 
 	# Regenerate configs and let procd reconcile the instances: owsync and
 	# lease-sync restart on config file change or start/stop as their config
-	# appears/disappears; keepalived's command line is unchanged, so it keeps
-	# running and is told to re-read its config instead, keeping the VIPs.
+	# appears/disappears; keepalived gets SIGHUP on config file change and
+	# re-reads its config, keeping the VIPs.
 	start
-	procd_send_signal ha-cluster keepalived SIGHUP
 }
 
 service_triggers() {
