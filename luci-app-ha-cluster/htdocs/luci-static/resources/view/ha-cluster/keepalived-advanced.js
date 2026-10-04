@@ -197,10 +197,6 @@ return view.extend({
 		o.value('2', _('Info (default)'));
 		o.value('3', _('Debug'));
 		o.default = '2';
-		// Absent option: show the backend default without writing it
-		o.cfgvalue = function(section_id) {
-			return this.super('cfgvalue', arguments) || this.default;
-		};
 
 		o = s.option(form.Flag, 'enable_notifications', _('Enable Email Notifications'),
 			_('Send email on state changes. Requires SMTP server.'));

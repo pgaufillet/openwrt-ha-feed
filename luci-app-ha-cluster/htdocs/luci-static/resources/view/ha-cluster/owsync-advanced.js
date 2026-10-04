@@ -166,10 +166,6 @@ return view.extend({
 		o.value('2', _('Info (default)'));
 		o.value('3', _('Debug'));
 		o.default = '2';
-		// Absent option: show the backend default without writing it
-		o.cfgvalue = function(section_id) {
-			return this.super('cfgvalue', arguments) || this.default;
-		};
 
 		s = m.section(form.GridSection, 'sync_group', _('Additional Sync Groups'),
 			_('Click Edit to configure files.'));

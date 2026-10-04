@@ -126,10 +126,6 @@ return view.extend({
 		o.value('multicast', _('Multicast'));
 		o.value('unicast', _('Unicast'));
 		o.default = 'multicast';
-		// Absent option: show the backend default without writing it
-		o.cfgvalue = function(section_id) {
-			return this.super('cfgvalue', arguments) || this.default;
-		};
 
 		var vrrpOnlyHelp = _('Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync.') + ' ' +
 			(transport === 'unicast'
@@ -470,15 +466,9 @@ return view.extend({
 		o.depends({ address6: /.+/ });
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
+		o.default = '1';
 		o.rmempty = false;
 		o.modalonly = true;
-		o.cfgvalue = function(section_id) {
-			return getBool(uci.get('ha-cluster', section_id, 'enabled'), true) ? '1' : '0';
-		};
-		o.write = function(section_id, value) {
-			if (this.cfgvalue(section_id) !== value)
-				uci.set('ha-cluster', section_id, 'enabled', value);
-		};
 
 		s = m.section(form.NamedSection, 'config', 'global', _('Synchronization'),
 			_('Keeps configuration files and DHCP leases identical on the cluster nodes. These settings must be the same on every node.'));

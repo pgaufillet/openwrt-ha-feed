@@ -61,10 +61,6 @@ return view.extend({
 		o.value('2', _('Info (default)'));
 		o.value('3', _('Debug'));
 		o.default = '2';
-		// Absent option: show the backend default without writing it
-		o.cfgvalue = function(section_id) {
-			return this.super('cfgvalue', arguments) || this.default;
-		};
 
 		return m.render().then(function(mapEl) {
 			if (['1', 'on', 'true', 'yes', 'enabled'].indexOf(uci.get('ha-cluster', 'config', 'lease_sync')) === -1)
