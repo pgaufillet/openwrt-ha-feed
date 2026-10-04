@@ -3,6 +3,7 @@
 checks() {
 	access ubus ha-cluster status
 	access ubus ha-cluster get_warnings
+	access ubus ha-cluster get_source_for_peer
 	access ubus ha-cluster generate_key
 	access ubus ha-cluster apply
 	access ubus network.interface dump

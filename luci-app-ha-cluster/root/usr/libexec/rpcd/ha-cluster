@@ -15,9 +15,6 @@ case "$1" in
 		json_close_object
 		json_add_object "apply"
 		json_close_object
-		json_add_object "get_source_for_peer"
-		json_add_string peer_address "str"
-		json_close_object
 		json_dump
 		;;
 	call)
@@ -296,120 +293,6 @@ case "$1" in
 				json_add_int lease_last_sync "$lease_last_sync"
 				json_close_object
 
-				json_dump
-				;;
-
-			get_source_for_peer)
-				# Kernel route source for the peer; a VIP is replaced, when possible,
-				# by another address of the same family on the same device
-				read -r input
-				json_load "$input"
-				json_get_var peer_address peer_address
-
-				if [ -z "$peer_address" ]; then
-					json_init
-					json_add_boolean success 0
-					json_add_string error "peer_address required"
-					json_dump
-					exit 1
-				fi
-
-				# Prevent injection
-				case "$peer_address" in
-					*[!0-9a-fA-F.:]*)
-						json_init
-						json_add_boolean success 0
-						json_add_string error "Invalid peer address"
-						json_dump
-						exit 1
-						;;
-				esac
-
-				case "$peer_address" in
-					*:*) addr_family="6" ;;
-					*)   addr_family="4" ;;
-				esac
-
-				if [ "$addr_family" = "6" ]; then
-					route_output=$(ip -6 route get "$peer_address" 2>/dev/null)
-				else
-					route_output=$(ip -4 route get "$peer_address" 2>/dev/null)
-				fi
-				if [ -z "$route_output" ]; then
-					json_init
-					json_add_boolean success 0
-					json_add_string error "No route to peer"
-					json_dump
-					exit 1
-				fi
-
-				# Parse: "192.168.1.2 via 10.0.0.1 dev eth0 src 10.0.0.2"
-				# or: "192.168.1.2 dev eth0 src 192.168.1.1"
-				kernel_src=$(echo "$route_output" | grep -oE 'src [0-9a-fA-F.:]+' | head -1 | cut -d' ' -f2)
-				route_dev=$(echo "$route_output" | grep -oE 'dev [^ ]+' | head -1 | cut -d' ' -f2)
-
-				if [ -z "$kernel_src" ] || [ -z "$route_dev" ]; then
-					json_init
-					json_add_boolean success 0
-					json_add_string error "Could not determine source"
-					json_dump
-					exit 1
-				fi
-
-				vip_list=""
-				for vip_section in $(uci show ha-cluster 2>/dev/null | grep "=vip$" | cut -d. -f2 | cut -d= -f1); do
-					for vip_option in address address6; do
-						vip_addr=$(uci -q get "ha-cluster.$vip_section.$vip_option")
-						if [ -n "$vip_addr" ]; then
-							vip_list="$vip_list $vip_addr"
-						fi
-					done
-				done
-
-				is_vip=0
-				for vip in $vip_list; do
-					if [ "$kernel_src" = "$vip" ]; then
-						is_vip=1
-						break
-					fi
-				done
-
-				recommended_src="$kernel_src"
-
-				if [ "$is_vip" -eq 1 ]; then
-					alt_src=""
-					if [ "$addr_family" = "6" ]; then
-						addr_list=$(ip -6 -o addr show dev "$route_dev" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-					else
-						addr_list=$(ip -4 -o addr show dev "$route_dev" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-					fi
-					for addr in $addr_list; do
-						case "$addr" in
-							127.*|::1|fe80:*) continue ;;
-						esac
-						skip=0
-						for vip in $vip_list; do
-							if [ "$addr" = "$vip" ]; then
-								skip=1
-								break
-							fi
-						done
-						if [ "$skip" -eq 0 ]; then
-							alt_src="$addr"
-							break
-						fi
-					done
-
-					if [ -n "$alt_src" ]; then
-						recommended_src="$alt_src"
-					fi
-				fi
-
-				json_init
-				json_add_boolean success 1
-				json_add_string source "$recommended_src"
-				json_add_string interface "$route_dev"
-				json_add_boolean is_vip_filtered "$is_vip"
 				json_dump
 				;;
 

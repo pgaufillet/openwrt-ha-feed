@@ -7,7 +7,7 @@
 			},
 			"ubus": {
 				"file": [ "list", "read", "stat" ],
-				"ha-cluster": [ "status", "generate_key", "get_source_for_peer" ],
+				"ha-cluster": [ "status", "generate_key" ],
 				"keepalived": [ "dump" ],
 				"service": [ "list" ]
 			},
