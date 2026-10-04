@@ -31,7 +31,7 @@ Other routers of the cluster. Configuration and lease sync run with every peer n
 | This section contains no values yet
 <button> Add
 h3: Virtual IP Addresses
-All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Optional. If IPv6 is configured, keepalived creates a second instance with VRID+128.
+All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Multicast VRRP adds a second instance with VRID+128 for the IPv6 addresses. Unicast VRRP runs one instance in the family of the unicast addresses, and the other family fails over with it.
 | Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
 | This section contains no values yet
 <button> Add VIP...
@@ -92,7 +92,6 @@ Files never synced; exclusions take precedence over sync groups. Default: networ
 ==== lease-sync-advanced
 h2: High Availability - Advanced Lease Sync
 Tuning for high-churn environments, unreliable networks, or troubleshooting.
-<alert> Lease sync is off. Turn it on in General › DHCP Leases; these settings apply once it runs.
 h3: Lease-Sync Tuning
 Default values work for most deployments.
 <em> This section contains no values yet

@@ -2,5 +2,6 @@ staged:
 set firewall sync_group
 set firewall enabled 1
 list-add firewall config_files firewall
+set config vrrp_transport multicast
 set config lease_sync 1
 set dhcp enabled 1
