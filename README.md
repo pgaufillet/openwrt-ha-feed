@@ -308,92 +308,69 @@ See `scripts/setup-openwrt-buildroot.sh --help` for options (custom OpenWrt vers
 
 ### Building and Hosting Your Own Package Repository
 
-If you want to serve pre-built packages to your routers without compiling on the router itself, you can create a signed apk feed hosted on any HTTP server on your LAN (NAS, Raspberry Pi, etc.).
+If you want to serve pre-built packages to your routers without compiling on the router itself, you can create a signed apk repository hosted on any HTTP server on your LAN (NAS, Raspberry Pi, etc.). This applies to OpenWrt 25.12 and later; one repository serves all routers of the same architecture and release branch.
 
-#### 1. Build the Packages
+#### 1. Generate a Signing Key
 
-Follow the build environment setup above, then compile all packages:
+apk repositories are signed with an ECDSA (prime256v1) key, generated the same way as the OpenWrt build key. Do this once and keep the private key safe (`keys/*.sec` is git-ignored):
 
 ```bash
-cd ../openwrt
-make package/ha-cluster/compile
-make package/owsync/compile
-make package/lease-sync/compile
-make package/dnsmasq-ha/compile
-make package/luci-app-ha-cluster/compile
+openssl ecparam -name prime256v1 -genkey -noout -out keys/ha_feed_apk.sec
+openssl ec -in keys/ha_feed_apk.sec -pubout -out keys/ha_feed_apk.pem
 ```
 
-Built packages are in `bin/packages/<arch>/ha_feed/` (e.g., `bin/packages/aarch64_cortex-a53/ha_feed/`).
+#### 2. Build the Packages and Sign the Index
 
-#### 2. Generate a Signing Key
+The Docker build is the recommended way: it compiles the packages and generates the signed index (`packages.adb`) in one run when the private key is mounted and `SIGN_KEY` is set (see [`docker/README.md`](docker/README.md#signing-a-package-index), including which release to build against). For example, for MediaTek Filogic routers:
 
 ```bash
-# usign is built as part of the OpenWrt toolchain
-USIGN=staging_dir/host/bin/usign
-
-# Generate a keypair (do this once, keep the private key safe)
-$USIGN -G -p keys/ha_feed.pub -s keys/ha_feed.sec
+docker build -t ha-feed-build-filogic \
+  --build-arg OPENWRT_TARGET=mediatek/filogic docker/
+docker run --rm \
+  -v "$PWD/output:/output" \
+  -v "$PWD/keys/ha_feed_apk.sec:/keys/ha_feed_apk.sec:ro" \
+  -e SIGN_KEY=/keys/ha_feed_apk.sec \
+  ha-feed-build-filogic
 ```
 
-#### 3. Generate and Sign the Package Index
+The repository is `output/<arch>/ha_feed/` (e.g. `output/aarch64_cortex-a53/ha_feed/`): the `*.apk` packages and `packages.adb`. Build all five packages in one run, so that the index lists all of them.
 
-The OpenWrt buildroot has a built-in target that generates the package index (`Packages`, `Packages.gz`, `Packages.sig`, `index.json`) and signs it. Pass `BUILD_KEY` to use your feed signing key instead of the default build key:
+From a full buildroot, `make package/index` generates and signs the index (`apk mkndx --sign`) with the buildroot's own key; pass `BUILD_KEY_APK_SEC=/path/to/keys/ha_feed_apk.sec` to sign with the feed key instead.
+
+#### 3. Deploy to a Web Server
+
+Copy the packages and the index to any directory served by an HTTP server:
 
 ```bash
-make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
+FEED_DIR=output/<arch>/ha_feed
+scp $FEED_DIR/*.apk $FEED_DIR/packages.adb myserver:/var/www/openwrt/ha_feed/
 ```
 
-#### 4. Deploy to a Web Server
+#### 4. Configure Routers to Use the Feed
 
-Copy the package files and index files to any directory served by an HTTP
-server (the build produces `.apk` on 25.12+, `.ipk` on 24.10 and earlier —
-adjust the glob accordingly):
+On each router, install the public key under `/etc/apk/keys/` (copy `keys/ha_feed_apk.pem` there, e.g. with `scp`), then add the index URL to the custom feeds list:
 
 ```bash
-FEED_DIR=bin/packages/<arch>/ha_feed
-scp $FEED_DIR/*.apk $FEED_DIR/Packages $FEED_DIR/Packages.gz $FEED_DIR/Packages.sig $FEED_DIR/index.json myserver:/var/www/openwrt/ha_feed/
-```
-
-#### 5. Configure Routers to Use the Feed
-
-On each router:
-
-```bash
-# Add the feed
-echo "src/gz ha_feed http://myserver/openwrt/ha_feed" > /etc/apk/customfeeds.conf
-
-# Install the signing public key
-# The key fingerprint is the filename under /etc/apk/keys/
-FINGERPRINT=$(usign -F -p /path/to/ha_feed.pub)
-cp /path/to/ha_feed.pub /etc/apk/keys/$FINGERPRINT
-
-# Update and install
+# Public key copied to /etc/apk/keys/ha_feed_apk.pem beforehand
+echo "http://myserver/openwrt/ha_feed/packages.adb" >> /etc/apk/repositories.d/customfeeds.list
 apk update
-apk add ha-cluster luci-app-ha-cluster
 ```
 
-#### 6. Updating the Feed
+`apk update` must report no `UNTRUSTED signature` warning for the repository.
 
-After rebuilding packages, repeat steps 3 and 4 to regenerate the index and redeploy. For example, to rebuild only `ha-cluster` and `luci-app-ha-cluster`:
+`dnsmasq-ha` replaces the stock `dnsmasq`, which serves the router's own DNS: once `dnsmasq` is removed, the router can no longer resolve the repository host. For the first installation, copy [`scripts/install-ha-cluster.sh`](scripts/install-ha-cluster.sh) to the router and run it: it installs the dependencies and downloads the feed packages first, then swaps `dnsmasq` for `dnsmasq-ha` offline.
 
 ```bash
-make package/ha-cluster/compile V=s
-make package/luci-app-ha-cluster/compile V=s
-make package/index BUILD_KEY=/path/to/keys/ha_feed.sec
-scp bin/packages/<arch>/ha_feed/* myserver:/var/www/openwrt/ha_feed/
+sh install-ha-cluster.sh
 ```
 
-On routers, run `apk update` to pick up the new versions.
+#### 5. Updating the Feed
 
-**Note:** `dnsmasq-ha` replaces the stock `dnsmasq` package. On first install, you may need to remove `dnsmasq` manually before installing `dnsmasq-ha`:
+After a change, repeat steps 2 and 3, then on each router:
 
 ```bash
-# Save dnsmasq config, remove stock, install HA version
-cp /etc/config/dhcp /tmp/dhcp.bak
-apk del dnsmasq
-apk add dnsmasq-ha
-cp /tmp/dhcp.bak /etc/config/dhcp
-/etc/init.d/dnsmasq restart
+apk update
+apk upgrade
 ```
 
 ## Maintainer
