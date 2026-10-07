@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs one characterization case in a throwaway node container and prints
 # its observable result.
-# Usage: harness.sh backend|rpcd|acl|migration <case file>
+# Usage: harness.sh backend|rpcd|acl|migration|hotplug <case file>
 #
 # A case file is sourced with errexit set. It may change UCI, remove or
 # create files, set the FAKE_* variables read by the stubs, and set
@@ -18,6 +18,11 @@
 #
 # ACL cases define a checks function calling access and file_call, run
 # against a real ubusd/rpcd with a restricted login.
+#
+# Hotplug cases set DHCP_ACTION, DHCP_MAC, DHCP_IP, DHCP_HOST (the
+# dnsmasq script arguments) and DHCP_ENV (newline-separated DNSMASQ_*
+# assignments). dnsmasq's dhcp-script runs with that environment only,
+# then lease-sync's hotplug script with the variables it forwarded.
 
 exec 2>&1
 
@@ -215,6 +220,31 @@ case "$mode" in
 		else
 			cat /tmp/char-second
 		fi
+		;;
+	hotplug)
+		record=/tmp/char-ubus
+		: > "$record"
+		mkdir -p /etc/lease-sync
+		echo char-node > /etc/lease-sync/node-id
+		IFS='
+'
+		# dnsmasq runs the script with its own environment only
+		env -i PATH="$PATH" FAKE_UBUS_RECORD="$record" $DHCP_ENV \
+			sh /char-dhcp-script "$DHCP_ACTION" "$DHCP_MAC" "$DHCP_IP" "$DHCP_HOST"
+		echo "== dhcp-script rc=$?"
+		json="$(sed -n 's/^call hotplug\.dhcp call //p' "$record")"
+		hotplug_env="$(jsonfilter -s "$json" -e '@.env[*]' | sort)"
+		echo "== hotplug.dhcp env"
+		echo "$hotplug_env"
+		# procd runs the hotplug.d scripts with the forwarded variables
+		env -i PATH="$PATH" CHAR_LOG="$CHAR_LOG" FAKE_UBUS_RECORD="$record" \
+			$hotplug_env sh /char-lease-sync-hotplug
+		echo "== lease-sync hotplug rc=$?"
+		echo "== ubus send"
+		sed -n 's/^send //p' "$record" |
+			sed 's/"timestamp":[0-9]*/"timestamp":(now)/; s/,"/,\n"/g'
+		echo "== log"
+		cat "$CHAR_LOG"
 		;;
 esac
 

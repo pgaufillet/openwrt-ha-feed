@@ -1,4 +1,13 @@
 #!/bin/sh
+# Hotplug calls and events are recorded in $FAKE_UBUS_RECORD when set.
+if [ -n "$FAKE_UBUS_RECORD" ]; then
+	case "$1 $2" in
+		"call hotplug."* | "send "*)
+			echo "$*" >> "$FAKE_UBUS_RECORD"
+			exit 0
+			;;
+	esac
+fi
 # Only "call keepalived dump" answers, from the $FAKE_KEEPALIVED fixture.
 if [ "$1 $2 $3" = "call keepalived dump" ] && [ -n "$FAKE_KEEPALIVED" ]; then
 	cat "$FAKE_KEEPALIVED"

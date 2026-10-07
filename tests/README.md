@@ -404,11 +404,12 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 
 | ID | Scenario | Validates |
 |----|----------|-----------|
-| T24 | Characterization | Backend, rpcd `status`, LuCI ACL and UCI migration output unchanged over a matrix of configurations |
+| T24 | Characterization | Backend, rpcd `status`, LuCI ACL, UCI migration and DHCP hotplug output unchanged over a matrix of configurations |
 
-T24 runs each case of `characterization/{backend,rpcd,acl,migration}/cases/` in a
-throwaway `ha-cluster-node` container (no network), against the
-working-tree `ha-cluster.sh`, init script, migration and rpcd handler, with
+T24 runs each case of `characterization/{backend,rpcd,acl,migration,hotplug}/cases/`
+in a throwaway `ha-cluster-node` container (no network), against the
+working-tree `ha-cluster.sh`, init script, migration, rpcd handler,
+dnsmasq `dhcp-script.sh` and lease-sync hotplug script, with
 `logger`, `pgrep`, `ubus` and `ping` stubbed. It compares the result
 (effective UCI, procd instances, log lines, generated configs, dnsmasq
 overlay, saved service state and rc.d links, rpcd JSON) with
@@ -435,6 +436,13 @@ cannot see a missing grant). A case defines a `checks` function:
 `access <scope> <object> <function>` asks the session (the ubus scope is
 enforced by uhttpd before any call), `file_call <method> <path>` makes
 the call itself (the file scope is enforced by rpcd).
+
+The `hotplug` cases give the dnsmasq script arguments (`DHCP_ACTION`,
+`DHCP_MAC`, `DHCP_IP`, `DHCP_HOST`) and its `DNSMASQ_*` environment
+(`DHCP_ENV`, one assignment per line). `dhcp-script.sh` runs with that
+environment only; the case records the variables it forwards to
+`hotplug.d/dhcp`, then the `dhcp.lease` event that lease-sync's hotplug
+script sends when run with them.
 
 An intended behaviour change is recorded by regenerating the expected
 files and committing their diff with the change:

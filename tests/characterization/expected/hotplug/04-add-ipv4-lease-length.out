@@ -1,0 +1,22 @@
+== dhcp-script rc=0
+== hotplug.dhcp env
+ACTION=add
+DNSMASQ_INTERFACE=br-lan
+DNSMASQ_LEASE_LENGTH=86400
+DNSMASQ_TIME_REMAINING=86400
+HOSTNAME=host3
+IPADDR=192.168.50.101
+MACADDR=02:00:00:00:00:03
+== lease-sync hotplug rc=0
+== ubus send
+dhcp.lease {"action":"add",
+"ip":"192.168.50.101",
+"mac":"02:00:00:00:00:03",
+"hostname":"host3",
+"node_id":"char-node",
+"timestamp":(now),
+"time_remaining":86400,
+"lease_length":86400,
+"interface":"br-lan"}
+== log
+lease-sync-hotplug|daemon.info|add event for 192.168.50.101 published

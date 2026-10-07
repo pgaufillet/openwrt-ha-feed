@@ -1,0 +1,23 @@
+== dhcp-script rc=0
+== hotplug.dhcp env
+ACTION=remove
+DNSMASQ_CLIENT_ID=01:02:00:00:00:00:01
+DNSMASQ_DOMAIN=lan
+DNSMASQ_INTERFACE=br-lan
+DNSMASQ_LEASE_EXPIRES=1767229200
+HOSTNAME=newname
+IPADDR=192.168.50.100
+MACADDR=02:00:00:00:00:01
+== lease-sync hotplug rc=0
+== ubus send
+dhcp.lease {"action":"del",
+"ip":"192.168.50.100",
+"mac":"02:00:00:00:00:01",
+"hostname":"newname",
+"node_id":"char-node",
+"timestamp":(now),
+"expires":1767229200,
+"client_id":"01:02:00:00:00:00:01",
+"interface":"br-lan"}
+== log
+lease-sync-hotplug|daemon.info|remove event for 192.168.50.100 published
