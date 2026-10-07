@@ -39,7 +39,7 @@ define Package/dnsmasq-ha
   CATEGORY:=Base system
   TITLE:=DNS and DHCP server (HA Enabled)
   URL:=http://www.thekelleys.org.uk/dnsmasq/
-  DEPENDS:=+libubus +@BUSYBOX_CONFIG_PIDOF +libnettle +kmod-ipt-ipset +libnetfilter-conntrack +nftables-json
+  DEPENDS:=+libubus +@BUSYBOX_CONFIG_PIDOF +libnettle +libnetfilter-conntrack +nftables-json
   PROVIDES:=dnsmasq
   USERID:=dnsmasq=453:dnsmasq=453
 endef
@@ -56,14 +56,14 @@ define Package/dnsmasq-ha/conffiles
 /etc/dnsmasq.d/
 endef
 
-# Hardcode options for HA variant (equivalent to full)
+# dnsmasq-full options at their default values
 COPTS = -DHAVE_UBUS -DHAVE_POLL_H \
 	$(if $(CONFIG_IPV6),,-DNO_IPV6) \
 	-DHAVE_DNSSEC \
 	-DHAVE_NFTSET \
 	-DHAVE_CONNTRACK \
+	-DNO_IPSET \
 	-DNO_ID \
-	-DNO_TFTP \
 	$(if $(CONFIG_LIBNETTLE_MINI),-DNO_GMP,)
 
 MAKE_FLAGS := \
