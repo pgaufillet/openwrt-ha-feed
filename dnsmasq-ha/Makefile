@@ -6,13 +6,13 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=dnsmasq-ha
 PKG_UPSTREAM_NAME:=dnsmasq
-PKG_UPSTREAM_VERSION:=2.92
+PKG_UPSTREAM_VERSION:=2.93
 PKG_VERSION:=$(subst test,~~test,$(subst rc,~rc,$(PKG_UPSTREAM_VERSION)))
 PKG_RELEASE:=1
 
 PKG_SOURCE:=$(PKG_UPSTREAM_NAME)-$(PKG_UPSTREAM_VERSION).tar.xz
 PKG_SOURCE_URL:=https://thekelleys.org.uk/dnsmasq/
-PKG_HASH:=4bf50c2c1018f9fbc26037df51b90ecea0cb73d46162846763b92df0d6c3a458
+PKG_HASH:=0c00d4e5c97c8306e5fb932b348b34269c9c29a0e7df0e8e82958b407092bc19
 
 PKG_LICENSE:=GPL-2.0
 PKG_LICENSE_FILES:=COPYING
@@ -39,7 +39,7 @@ define Package/dnsmasq-ha
   CATEGORY:=Base system
   TITLE:=DNS and DHCP server (HA Enabled)
   URL:=http://www.thekelleys.org.uk/dnsmasq/
-  DEPENDS:=+libubus +libnettle +kmod-ipt-ipset +libnetfilter-conntrack +nftables-json
+  DEPENDS:=+libubus +@BUSYBOX_CONFIG_PIDOF +libnettle +kmod-ipt-ipset +libnetfilter-conntrack +nftables-json
   PROVIDES:=dnsmasq
   USERID:=dnsmasq=453:dnsmasq=453
 endef

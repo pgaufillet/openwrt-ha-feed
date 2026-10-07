@@ -1,8 +1,8 @@
 diff --git a/src/dnsmasq.h b/src/dnsmasq.h
-index 254bacd..809d177 100644
+index ebb8d15..4632d00 100644
 --- a/src/dnsmasq.h
 +++ b/src/dnsmasq.h
-@@ -1618,6 +1618,7 @@ char *host_from_dns(struct in_addr addr);
+@@ -1643,6 +1643,7 @@ char *host_from_dns(struct in_addr addr);
  
  /* lease.c */
  #ifdef HAVE_DHCP
@@ -11,10 +11,10 @@ index 254bacd..809d177 100644
  void lease_update_dns(int force);
  void lease_init(time_t now);
 diff --git a/src/lease.c b/src/lease.c
-index 00748ad..74ab1f3 100644
+index 1de7b4c..c0b4ff8 100644
 --- a/src/lease.c
 +++ b/src/lease.c
-@@ -163,6 +163,11 @@ static int read_leases(time_t now, FILE *leasestream)
+@@ -171,6 +171,11 @@ static int read_leases(time_t now, FILE *leasestream)
      return (items == 0 || items == EOF);
  }
  
@@ -27,7 +27,7 @@ index 00748ad..74ab1f3 100644
  {
    FILE *leasestream;
 diff --git a/src/ubus.c b/src/ubus.c
-index b30f2b6..347ebe5 100644
+index ec910ec..f2c1d54 100644
 --- a/src/ubus.c
 +++ b/src/ubus.c
 @@ -27,6 +27,48 @@ static int ubus_handle_metrics(struct ubus_context *ctx, struct ubus_object *obj
