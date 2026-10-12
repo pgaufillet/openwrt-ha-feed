@@ -1,0 +1,26 @@
+== /etc/config/ha-cluster
+config global 'config'
+	option enabled '0'
+
+config advanced
+	option log_level '1'
+	option lease_sync_persist_interval '30'
+
+config advanced 'advanced'
+	option log_level '3'
+	option lease_sync_persist_interval '60'
+== migration rc=0
+== /etc/config/ha-cluster
+
+config global 'config'
+	option enabled '0'
+
+config advanced
+	option log_level '1'
+	option lease_sync_persist_interval '30'
+
+config advanced 'advanced'
+	option log_level '3'
+
+== second run rc=0
+(unchanged)

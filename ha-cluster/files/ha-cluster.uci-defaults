@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 # Migrates /etc/config/ha-cluster to sync_group sections, the global
-# lease_sync switch and vrrp_only peers, and drops the lease-sync persist
-# interval. Idempotent.
+# lease_sync switch, vrrp_only peers and a named advanced section, and
+# drops the lease-sync persist interval. Idempotent.
 
 . /lib/functions.sh
 
@@ -57,6 +57,15 @@ migrate_peer() {
 	uci -q delete "ha-cluster.$section.sync_enabled"
 }
 config_foreach migrate_peer peer
+
+# The backend reads the advanced section by name: the first anonymous
+# one takes it, unless a section already has it
+if [ -z "$(uci -q get ha-cluster.advanced)" ]; then
+	section="$(uci -q show ha-cluster |
+		sed -n 's/^ha-cluster\.\(@advanced\[[0-9]*\]\)=advanced$/\1/p' |
+		head -n 1)"
+	[ -n "$section" ] && uci -q rename "ha-cluster.$section=advanced"
+fi
 
 # Never implemented by lease-sync
 uci -q delete ha-cluster.advanced.lease_sync_persist_interval

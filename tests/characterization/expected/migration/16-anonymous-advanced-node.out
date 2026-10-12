@@ -1,0 +1,101 @@
+== /etc/config/ha-cluster
+config global 'config'
+	option enabled '1'
+	option node_priority '150'
+	option vrrp_transport 'multicast'
+	option sync_method 'owsync'
+	option encryption_key '0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9'
+
+config vrrp_instance 'main'
+	option vrid '64'
+	option interface 'lan'
+	option nopreempt '1'
+	option advert_int '1'
+
+config vip
+	option enabled '1'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.50.254'
+	option netmask '255.255.255.0'
+
+config peer
+	option name 'router2'
+	option address '192.168.50.11'
+
+config service 'dhcp'
+	option enabled '1'
+	option sync_leases '1'
+	list config_files 'dhcp'
+
+# Advanced settings
+config advanced
+	option log_level '3'              # ha-cluster log level: 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG
+	option owsync_log_level '1'
+	option sync_interval '60'         # owsync periodic sync interval
+	option lease_sync_port '5378'     # lease-sync UDP port
+	option lease_sync_interval '30'   # lease-sync periodic sync interval
+	option lease_sync_peer_timeout '120'
+	option lease_sync_persist_interval '60'
+	option lease_sync_log_level '2'   # 0=ERROR, 1=WARN, 2=INFO, 3=DEBUG
+	option max_auto_priority '200'    # Keepalived auto-priority cap (0 disables auto)
+	option enable_notifications '0'   # Email/script notifications
+
+config exclude
+	list file 'network'
+	list file 'system'
+	list file 'owsync'
+	list file 'ha-cluster'
+	list file 'wireless'
+== migration rc=0
+== /etc/config/ha-cluster
+
+config global 'config'
+	option enabled '1'
+	option node_priority '150'
+	option vrrp_transport 'multicast'
+	option sync_method 'owsync'
+	option encryption_key '0a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f9'
+	option lease_sync '1'
+
+config vrrp_instance 'main'
+	option vrid '64'
+	option interface 'lan'
+	option nopreempt '1'
+	option advert_int '1'
+
+config vip
+	option enabled '1'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '192.168.50.254'
+	option netmask '255.255.255.0'
+
+config peer
+	option name 'router2'
+	option address '192.168.50.11'
+
+config sync_group 'dhcp'
+	option enabled '1'
+	list config_files 'dhcp'
+
+config advanced 'advanced'
+	option log_level '3'
+	option owsync_log_level '1'
+	option sync_interval '60'
+	option lease_sync_port '5378'
+	option lease_sync_interval '30'
+	option lease_sync_peer_timeout '120'
+	option lease_sync_log_level '2'
+	option max_auto_priority '200'
+	option enable_notifications '0'
+
+config exclude
+	list file 'network'
+	list file 'system'
+	list file 'owsync'
+	list file 'ha-cluster'
+	list file 'wireless'
+
+== second run rc=0
+(unchanged)

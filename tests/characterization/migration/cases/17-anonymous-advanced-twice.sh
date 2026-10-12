@@ -1,0 +1,14 @@
+# Two anonymous advanced sections: only the first is named advanced and
+# loses the persist interval, the second is left as is
+cat > /etc/config/ha-cluster <<'CONF'
+config global 'config'
+	option enabled '0'
+
+config advanced
+	option log_level '3'
+	option lease_sync_persist_interval '60'
+
+config advanced
+	option sync_interval '60'
+	option lease_sync_persist_interval '30'
+CONF

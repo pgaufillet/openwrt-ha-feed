@@ -73,6 +73,8 @@ migrates the existing file once:
 - When an option is changed, `uci commit` rewrites the file and drops its
   comments. A file that only needs its sections renamed keeps them.
 - The migration leaves an already migrated file unchanged.
+- A 1.0.x `config advanced` section without a name is named `advanced`,
+  so that ha-cluster reads its settings (only the first one, if several).
 - Scripts that set the old options must be updated: ha-cluster refuses to
   start with a `sync_method` other than `owsync`, and ignores
   `sync_leases` and `sync_enabled`.
