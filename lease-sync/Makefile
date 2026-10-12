@@ -10,7 +10,7 @@ PKG_RELEASE:=2
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/pgaufillet/lease-sync.git
 PKG_SOURCE_VERSION:=8886c5c303af193314ded72aba74c6b403ae3a41
-PKG_MIRROR_HASH:=skip
+PKG_MIRROR_HASH:=6fffb87c9eda4a112af01d5e8e63e716925cf895bd8e479abb56a209fa8d6b7c
 
 PKG_MAINTAINER:=Pierre Gaufillet <pierre.gaufillet@bergamote.eu>
 PKG_LICENSE:=GPL-2.0-or-later
