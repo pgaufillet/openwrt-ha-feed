@@ -10,6 +10,7 @@
 'require ui';
 'require network';
 'require fs';
+'require validation';
 
 var callGetInterfaces = rpc.declare({
 	object: 'network.interface',
@@ -47,12 +48,19 @@ return view.extend({
 		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var m, s, o;
 
+		// Canonical form: no prefix length, IPv6 as its 16-bit words
+		var addressKey = function(addr) {
+			var ip = String(addr).split('/')[0];
+			var words = validation.parseIPv6(ip);
+			return words ? words.join(':') : ip;
+		};
+
 		var vipAddresses = {};
 		uci.sections('ha-cluster', 'vip').forEach(function(vip) {
 			if (vip.address)
-				vipAddresses[vip.address] = true;
+				vipAddresses[addressKey(vip.address)] = true;
 			if (vip.address6)
-				vipAddresses[vip.address6] = true;
+				vipAddresses[addressKey(vip.address6)] = true;
 		});
 
 		var isValidSourceAddress = function(addr) {
@@ -60,7 +68,7 @@ return view.extend({
 				return false;
 			if (addr.startsWith('fe80:'))
 				return false;
-			if (vipAddresses[addr])
+			if (vipAddresses[addressKey(addr)])
 				return false;
 			return true;
 		};

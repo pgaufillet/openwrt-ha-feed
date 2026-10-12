@@ -1,0 +1,28 @@
+config global 'config'
+	option enabled '0'
+
+config vrrp_instance 'main'
+	option vrid '64'
+	option interface 'lan'
+
+# VIPs written as addresses of the node: none is offered as a source
+# address, whatever its form
+config vip 'canonical4'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address '172.30.0.10'
+	option netmask '255.255.255.0'
+
+config vip 'noncanonical6'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address6 'FD00:172:30:0::10'
+
+config vip 'prefixed6'
+	option vrrp_instance 'main'
+	option interface 'lan'
+	option address6 'fd00:192:168:50::10/64'
+
+config peer 'peer1'
+	option name 'ha-node2'
+	option address '172.30.0.11'
