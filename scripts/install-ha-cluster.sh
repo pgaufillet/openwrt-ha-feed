@@ -80,21 +80,23 @@ fi
 
 # --- Step 2: Check current dnsmasq status ---
 
+# Check dnsmasq-ha first: "apk info -e dnsmasq" also matches it, as
+# dnsmasq-ha provides dnsmasq.
 STOCK_DNSMASQ=""
-if apk info -e dnsmasq-full 2>/dev/null; then
-	STOCK_DNSMASQ="dnsmasq-full"
-elif apk info -e dnsmasq 2>/dev/null; then
-	STOCK_DNSMASQ="dnsmasq"
-fi
-
+HA_DNSMASQ=""
 SKIP_DNSMASQ_SWAP=""
-if apk info -e dnsmasq-ha 2>/dev/null; then
+if apk info -e dnsmasq-ha >/dev/null 2>&1; then
+	HA_DNSMASQ=1
 	if [ -n "$FORCE_REINSTALL" ]; then
 		info "dnsmasq-ha is already installed (will force-reinstall)"
 	else
 		info "dnsmasq-ha is already installed, skipping replacement"
 		SKIP_DNSMASQ_SWAP=1
 	fi
+elif apk info -e dnsmasq-full >/dev/null 2>&1; then
+	STOCK_DNSMASQ="dnsmasq-full"
+elif apk info -e dnsmasq >/dev/null 2>&1; then
+	STOCK_DNSMASQ="dnsmasq"
 fi
 
 # --- Step 3: Pre-install ALL dependencies from official feeds while DNS works ---
@@ -145,7 +147,10 @@ if [ -z "$SKIP_DNSMASQ_SWAP" ] && [ -n "$STOCK_DNSMASQ" ]; then
 	}
 
 	info "dnsmasq-ha installed successfully"
-elif [ -z "$SKIP_DNSMASQ_SWAP" ] && [ -z "$STOCK_DNSMASQ" ]; then
+elif [ -z "$SKIP_DNSMASQ_SWAP" ] && [ -n "$HA_DNSMASQ" ]; then
+	info "Reinstalling dnsmasq-ha from local package..."
+	apk add --allow-untrusted /tmp/dnsmasq-ha-*.apk || die "Failed to reinstall dnsmasq-ha"
+elif [ -z "$SKIP_DNSMASQ_SWAP" ]; then
 	info "No stock dnsmasq detected — installing dnsmasq-ha"
 	apk add --allow-untrusted /tmp/dnsmasq-ha-*.apk || die "Failed to install dnsmasq-ha"
 fi
