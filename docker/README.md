@@ -2,8 +2,11 @@
 
 This directory provides a Docker image that compiles the ha-cluster feed
 packages using the **official OpenWrt SDK**. The SDK ships a prebuilt
-cross-toolchain, so packages build in a few minutes without cloning a full
-OpenWrt buildroot or rebuilding the toolchain.
+cross-toolchain, so packages build without cloning a full OpenWrt buildroot
+or rebuilding the toolchain. A one-shot build of all five packages takes
+about 12 minutes, most of it repackaging the SDK's kernel modules; with a
+named volume, repeat builds take about 30 seconds (see
+[Faster repeated builds](#faster-repeated-builds)).
 
 Use this when you want ready-to-install packages without setting up a
 build host by hand — build on any machine with Docker, then copy the packages
