@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs one characterization case in a throwaway node container and prints
 # its observable result.
-# Usage: harness.sh backend|rpcd|acl|migration|hotplug <case file>
+# Usage: harness.sh backend|rpcd|acl|migration|hotplug|lease-sync <case file>
 #
 # A case file is sourced with errexit set. It may change UCI, remove or
 # create files, set the FAKE_* variables read by the stubs, and set
@@ -23,6 +23,10 @@
 # dnsmasq script arguments) and DHCP_ENV (newline-separated DNSMASQ_*
 # assignments). dnsmasq's dhcp-script runs with that environment only,
 # then lease-sync's hotplug script with the variables it forwarded.
+#
+# lease-sync cases change /etc/config/lease-sync (the shipped file) and
+# observe the start of the working-tree standalone lease-sync init
+# script; the other modes use the installed one.
 
 exec 2>&1
 
@@ -36,8 +40,9 @@ export CHAR_LOG=/tmp/char.log
 
 cp "$CHAR/base-ha-cluster" /etc/config/ha-cluster
 cp "$CHAR/base-dhcp" /etc/config/dhcp
+cp /shipped/lease-sync /etc/config/lease-sync
 rm -rf /tmp/ha-cluster /etc/ha-cluster /tmp/dnsmasq*.d
-rm -f /etc/owsync/owsync.db /tmp/dhcp.leases
+rm -f /etc/owsync/owsync.db /tmp/dhcp.leases /etc/lease-sync/config
 
 # Standalone services enabled, whatever the image build left
 for service in keepalived owsync lease-sync; do
@@ -79,11 +84,12 @@ show_dir() {
 	fi
 }
 
-# The init script without rc.common: procd calls are printed, and
-# start/stop run the service functions directly, stop in rc.common's
-# order (procd_kill ends the instances).
+# Usage: load_init [<init script>]
+# The init script (default ha-cluster's) without rc.common: procd calls are
+# printed, and start/stop run the service functions directly, stop in
+# rc.common's order (procd_kill ends the instances).
 load_init() {
-	. /etc/init.d/ha-cluster
+	. "${1:-/etc/init.d/ha-cluster}"
 
 	procd_open_instance() { printf 'instance'; args "$@"; }
 	procd_set_param() { printf '\tset'; args "$@"; }
@@ -251,6 +257,32 @@ case "$mode" in
 			sed 's/"timestamp":[0-9]*/"timestamp":(now)/; s/,"/,\n"/g'
 		echo "== log"
 		cat "$CHAR_LOG"
+		;;
+	lease-sync)
+		conf=/etc/lease-sync/config
+		echo "== uci"
+		uci export lease-sync
+
+		load_init /char-lease-sync-init
+
+		echo "== start_service"
+		start_service
+		echo "rc=$?"
+		echo "== log"
+		cat "$CHAR_LOG"
+		echo "== mode $conf"
+		if [ -f "$conf" ]; then
+			ls -l "$conf" | cut -d' ' -f1
+		else
+			echo "(absent)"
+		fi
+		show_file "$conf"
+
+		key="$(uci -q get lease-sync.config.psk_key)"
+		if [ -n "$key" ] && grep -qF "$key" "$CHAR_LOG"; then
+			echo "psk_key written to the log"
+			exit 1
+		fi
 		;;
 esac
 

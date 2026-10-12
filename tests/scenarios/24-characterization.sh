@@ -1,5 +1,5 @@
 #!/bin/sh
-# 24-characterization.sh - Test T24: Backend, rpcd, ACL, Migration and Hotplug Characterization
+# 24-characterization.sh - Test T24: Backend, rpcd, ACL, Migration, Hotplug and lease-sync Characterization
 #
 # Freezes the observable behaviour of the ha-cluster backend and of the
 # rpcd status method over a matrix of configurations, so that any change
@@ -17,6 +17,8 @@
 #   - hotplug: what dnsmasq's dhcp-script forwards to hotplug.d/dhcp for
 #     a lease event, and the dhcp.lease event lease-sync's hotplug script
 #     sends from it
+#   - lease-sync: the config the standalone lease-sync init script
+#     generates from /etc/config/lease-sync, its mode and log lines
 #
 # Each case runs in a throwaway ha-cluster-node container (no network),
 # against the working-tree scripts, with logger/pgrep/ubus/ping stubbed.
@@ -50,7 +52,7 @@ NODE_IMAGE="${NODE_IMAGE:-ha-cluster-node:latest}"
 # Helpers
 # ============================================
 
-# Usage: run_case backend|rpcd|acl|migration|hotplug <case file name>
+# Usage: run_case backend|rpcd|acl|migration|hotplug|lease-sync <case file name>
 run_case() {
     local mode="$1"
     local case_name="$2"
@@ -65,6 +67,8 @@ run_case() {
         -v "$FEED_DIR/luci-app-ha-cluster/root/usr/share/rpcd/acl.d/luci-app-ha-cluster.json:/usr/share/rpcd/acl.d/luci-app-ha-cluster.json:ro" \
         -v "$FEED_DIR/dnsmasq-ha/files/dhcp-script.sh:/char-dhcp-script:ro" \
         -v "$FEED_DIR/lease-sync/files/lease-sync.hotplug:/char-lease-sync-hotplug:ro" \
+        -v "$FEED_DIR/lease-sync/files/lease-sync.init:/char-lease-sync-init:ro" \
+        -v "$FEED_DIR/lease-sync/files/lease-sync.config:/shipped/lease-sync:ro" \
         -v "$CHAR_DIR:/char:ro" \
         "$NODE_IMAGE" /char/harness.sh "$mode" "/char/$mode/cases/$case_name"
 }
@@ -100,7 +104,7 @@ test_prerequisites() {
     pass "Node image and python3 available"
 }
 
-# Usage: test_matrix backend|rpcd|acl|migration|hotplug
+# Usage: test_matrix backend|rpcd|acl|migration|hotplug|lease-sync
 test_matrix() {
     local mode="$1"
     local rc=0
@@ -162,8 +166,8 @@ test_matrix() {
 # ============================================
 
 main() {
-    header "T24: Backend, rpcd, ACL, Migration and Hotplug Characterization"
-    info "Compares backend, rpcd, ACL, migration and hotplug behaviour with the expected outputs"
+    header "T24: Backend, rpcd, ACL, Migration, Hotplug and lease-sync Characterization"
+    info "Compares backend, rpcd, ACL, migration, hotplug and lease-sync behaviour with the expected outputs"
 
     local result=0
 
@@ -174,6 +178,7 @@ main() {
     test_matrix acl || result=1
     test_matrix migration || result=1
     test_matrix hotplug || result=1
+    test_matrix lease-sync || result=1
 
     return $result
 }

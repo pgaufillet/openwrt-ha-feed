@@ -404,12 +404,13 @@ Without this configuration, fw4's default `policy drop` blocks inter-container t
 
 | ID | Scenario | Validates |
 |----|----------|-----------|
-| T24 | Characterization | Backend, rpcd `status`, LuCI ACL, UCI migration and DHCP hotplug output unchanged over a matrix of configurations |
+| T24 | Characterization | Backend, rpcd `status`, LuCI ACL, UCI migration, DHCP hotplug and standalone lease-sync config output unchanged over a matrix of configurations |
 
-T24 runs each case of `characterization/{backend,rpcd,acl,migration,hotplug}/cases/`
+T24 runs each case of `characterization/{backend,rpcd,acl,migration,hotplug,lease-sync}/cases/`
 in a throwaway `ha-cluster-node` container (no network), against the
 working-tree `ha-cluster.sh`, init script, migration, rpcd handler,
-dnsmasq `dhcp-script.sh` and lease-sync hotplug script, with
+dnsmasq `dhcp-script.sh`, and lease-sync's hotplug script, standalone
+init script and shipped UCI file, with
 `logger`, `pgrep`, `ubus` and `ping` stubbed. It compares the result
 (effective UCI, procd instances, log lines, generated configs, dnsmasq
 overlay, saved service state and rc.d links, rpcd JSON) with
@@ -443,6 +444,11 @@ The `hotplug` cases give the dnsmasq script arguments (`DHCP_ACTION`,
 environment only; the case records the variables it forwards to
 `hotplug.d/dhcp`, then the `dhcp.lease` event that lease-sync's hotplug
 script sends when run with them.
+
+The `lease-sync` cases change `/etc/config/lease-sync` and start the
+working-tree standalone lease-sync init script: they record its procd
+instance, log lines, and the generated `/etc/lease-sync/config` with its
+mode. A case whose `psk_key` reaches the log fails.
 
 An intended behaviour change is recorded by regenerating the expected
 files and committing their diff with the change:
@@ -554,6 +560,24 @@ git worktree remove /tmp/feed-old
 (`ha-feed-build-local` is the local-checkout image of
 `docker/README.md`.) T26 fails if they are missing. Logs, configs and
 syslogs per case are left in `logs/upgrade/`.
+
+### Standalone lease-sync (T27)
+
+| ID | Scenario | Validates |
+|----|----------|-----------|
+| T27 | Standalone lease-sync | The lease-sync package's own init script, without ha-cluster, starts an encrypted daemon that stays up and replicates a lease; handing the port back from ha-cluster's daemon on stop never leaves two daemons on it |
+
+T27 stops ha-cluster on both nodes and enables the standalone lease-sync
+in `/etc/config/lease-sync` (peer, `security_mode`, `psk_key`). It checks
+that the daemon keeps the same pid over a window longer than procd's
+respawn delay, that the generated config holds the key and is readable by
+root only, that the key never reaches the syslog, and that a lease served
+by one node reaches the other. It then starts ha-cluster, which takes the
+standalone service over, and stops it on one node while sampling the
+holders of UDP 5378: ha-cluster's daemon must exit before ha-cluster
+restores the standalone service and before the standalone daemon
+initializes its socket, and no sample may show two holders. The
+cleanup restores `/etc/config/lease-sync` and restarts ha-cluster.
 
 ## Usage
 

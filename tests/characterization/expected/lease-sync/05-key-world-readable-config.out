@@ -1,0 +1,40 @@
+== uci
+package lease-sync
+
+config lease-sync 'config'
+	option enabled '1'
+	option sync_port '5378'
+	option sync_interval '30'
+	option peer_timeout '120'
+	option log_level '2'
+	list peer '172.30.0.11'
+	option psk_key '7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e'
+	option plain_mode_acknowledged '0'
+
+== start_service
+instance [lease-sync]
+	set [command] [/usr/sbin/lease-sync] [-c] [/etc/lease-sync/config]
+	set [respawn] [3600] [5] [5]
+	set [limits] [nofile=1024 1024]
+	set [stdout] [1]
+	set [stderr] [1]
+	set [syslog] [1]
+end
+rc=0
+== log
+lease-sync|daemon.info|Generating configuration from UCI
+lease-sync|daemon.info|Configuration generated with 1 peers
+lease-sync|daemon.info|Starting lease-sync daemon
+== mode /etc/lease-sync/config
+-rw-------
+== /etc/lease-sync/config
+# Auto-generated from /etc/config/lease-sync
+# Do not edit - changes will be overwritten
+# Edit /etc/config/lease-sync instead
+
+sync_port=5378
+sync_interval=30
+peer_timeout=120
+log_level=2
+psk_key=7f8e9d0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e
+peer=172.30.0.11

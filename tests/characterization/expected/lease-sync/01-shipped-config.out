@@ -1,0 +1,18 @@
+== uci
+package lease-sync
+
+config lease-sync 'config'
+	option enabled '0'
+	option sync_port '5378'
+	option sync_interval '30'
+	option peer_timeout '120'
+	option log_level '2'
+
+== start_service
+rc=0
+== log
+lease-sync|daemon.info|lease-sync disabled in UCI configuration
+== mode /etc/lease-sync/config
+(absent)
+== /etc/lease-sync/config
+(absent)

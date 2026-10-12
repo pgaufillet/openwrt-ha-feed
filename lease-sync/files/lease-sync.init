@@ -21,6 +21,7 @@ start_service() {
     config_load lease-sync
 
     local enabled sync_port sync_interval peer_timeout log_level node_id
+    local security_mode psk_key plain_mode_acknowledged
     config_get_bool enabled config enabled 0
 
     # If disabled in UCI, don't start
@@ -34,9 +35,17 @@ start_service() {
     config_get peer_timeout config peer_timeout "120"
     config_get log_level config log_level "2"
     config_get node_id config node_id ""
+    config_get security_mode config security_mode ""
+    config_get psk_key config psk_key ""
+    config_get_bool plain_mode_acknowledged config plain_mode_acknowledged 0
 
     # Generate flat configuration file
     logger -t lease-sync -p daemon.info "Generating configuration from UCI"
+
+    # May hold the PSK: readable by root only
+    rm -f "$CONF"
+    touch "$CONF"
+    chmod 0600 "$CONF"
 
     cat > "$CONF" <<EOF
 # Auto-generated from /etc/config/lease-sync
@@ -51,6 +60,10 @@ EOF
 
     # Add node_id if configured
     [ -n "$node_id" ] && echo "node_id=$node_id" >> "$CONF"
+
+    [ -n "$security_mode" ] && echo "security_mode=$security_mode" >> "$CONF"
+    [ -n "$psk_key" ] && echo "psk_key=$psk_key" >> "$CONF"
+    [ "$plain_mode_acknowledged" -eq 1 ] && echo "plain_mode_acknowledged=1" >> "$CONF"
 
     # Add peers from UCI (list option)
     add_peer() {
