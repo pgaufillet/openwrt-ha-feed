@@ -10,6 +10,9 @@
 //                           for a fixture (old option names, migrated
 //                           first when a migration script is given)
 //   missing/<daemon>.out    pages rendered with a daemon binary removed
+//   missing/package-manager.out
+//                           install hints with both daemons and the
+//                           Software page (luci-app-package-manager) absent
 //   action/<name>.out       UI -> UCI: changes staged by a scripted edit
 //                           (Save, never Apply), plus notifications and
 //                           invalid fields
@@ -56,6 +59,8 @@ const PAGES = ['status', 'simple', 'keepalived-advanced', 'owsync-advanced', 'le
 const VIEWPORTS = [1280, 375];
 const SCHEMES = ['light', 'dark'];
 const DAEMONS = { 'lease-sync': '/usr/sbin/lease-sync', 'owsync': '/usr/bin/owsync' };
+// Its menu entry is what makes the Software page exist
+const PKG_MANAGER_MENU = '/usr/share/luci/menu.d/luci-app-package-manager.json';
 
 const consoleLog = [];
 
@@ -1063,6 +1068,19 @@ async function main() {
 			}
 		}
 
+		// Every install hint, without the Software page
+		if (PHASES.includes('missing')) {
+			sh(`mv ${PKG_MANAGER_MENU} /tmp/t25-package-manager.json` +
+				Object.entries(DAEMONS).map(([daemon, bin]) => ` && mv ${bin} /tmp/t25-${daemon}`).join(''));
+			try {
+				write('missing/package-manager.out', await snapshotFixture(browser, 'full',
+					['simple', 'owsync-advanced', 'lease-sync-advanced']));
+			} finally {
+				sh(`mv /tmp/t25-package-manager.json ${PKG_MANAGER_MENU}` +
+					Object.entries(DAEMONS).map(([daemon, bin]) => ` && mv /tmp/t25-${daemon} ${bin}`).join(''));
+			}
+		}
+
 		if (PHASES.includes('action'))
 		for (const action of ACTIONS.filter(a => !ONLY || ONLY.includes(a[0])))
 			write(`action/${action[0]}.out`, await runAction(browser, action));
@@ -1090,6 +1108,7 @@ async function main() {
 		sh('cp /tmp/t25-ha-cluster.orig /etc/config/ha-cluster && rm -f /tmp/t25-ha-cluster.orig');
 		for (const [daemon, bin] of Object.entries(DAEMONS))
 			sh(`[ -e /tmp/t25-${daemon} ] && mv /tmp/t25-${daemon} ${bin}; true`);
+		sh(`[ -e /tmp/t25-package-manager.json ] && mv /tmp/t25-package-manager.json ${PKG_MANAGER_MENU}; true`);
 		sh('[ -e /tmp/t25-dhcp.orig ] && mv /tmp/t25-dhcp.orig /etc/config/dhcp; true');
 		fs.writeFileSync(path.join(OUT, 'layout-details.log'), log.join('\n') + '\n');
 		write('computed/console.out', consoleLog.join('\n'));

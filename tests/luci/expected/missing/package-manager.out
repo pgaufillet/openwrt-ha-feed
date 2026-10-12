@@ -1,0 +1,103 @@
+==== simple
+h2: High Availability - General
+Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.
+h3: Cluster Configuration
+config.enabled [CBI.FlagValue] Enable HA Cluster: [x]
+  help: Enable high availability clustering on this router
+config.node_priority [CBI.Value] Priority: value=150 (placeholder "100")
+  help: VRRP priority (1-255). Higher priority becomes MASTER.
+config.vrrp_transport [CBI.ListValue] VRRP Transport: select=unicast {multicast,unicast}
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network.
+h3: Peer Routers
+Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In unicast mode, VRRP adverts are sent to every peer listed here.
+| Peer | Role | 
+| peer1: ha-node2 (172.30.0.11) | Cluster node | [☰][Edit][Delete]
+| peer2: edge-router (fd00:172:30::20) | VRRP only | [☰][Edit][Delete]
+| peer3: legacy (172.30.0.12) | Cluster node | [☰][Edit][Delete]
+<button> Add
+h3: Virtual IP Addresses
+All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Multicast VRRP adds a second instance with VRID+128 for the IPv6 addresses. Unicast VRRP runs one instance in the family of the unicast addresses, and the other family fails over with it.
+| Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
+| lan: <img> lan | 51 | 192.168.50.254 | fd00:192:168:50::254 | Yes | [☰][Edit][Delete]
+| lan_old: <img> lan | 51 | 192.168.50.253 | none | No | [☰][Edit][Delete]
+| vpn6: <img> backend | 52 | none | fd00:172:30::254 | Yes | [☰][Edit][Delete]
+<button> Add VIP...
+h3: Synchronization
+Keeps configuration files and DHCP leases identical on the cluster nodes. These settings must be the same on every node.
+config.encryption_key [CBI.Value] Encryption Key: password=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef (placeholder "Click "Generate New Key" below to create a secure random key") button "∗"
+  help: 256-bit AES key (64 hexadecimal characters), used for both configuration and lease sync. Must be identical on all nodes. Leave empty to sync in plaintext.
+config._generate_key [CBI.ButtonValue] Generate New Key: button "Generate New Key"
+h3: Configuration Files
+config._owsync_missing [CBI.DummyValue] : text "owsync is not installed. Install the owsync package to synchronize configuration files. The 4 enabled sync groups in the configuration will apply once it is installed."
+h3: DHCP Leases
+config._lease_sync_missing [CBI.DummyValue] : text "lease-sync is not installed. Install the lease-sync and dnsmasq-ha packages to synchronize DHCP leases. Lease sync is on in the configuration and will start once they are installed."
+==== simple modal peer1
+h4: High Availability - General
+peer1.name [CBI.Value] Peer Name: value=ha-node2 (placeholder "router2")
+peer1.address [CBI.Value] Peer IP Address: value=172.30.0.11 (placeholder "192.168.1.2")
+peer1.source_address [CBI.ListValue] Source Address: select=172.30.0.10 {,172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer1.vrrp_only [CBI.FlagValue] VRRP only: [ ]
+  help: Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync. In unicast mode keepalived still sends it VRRP adverts.
+<button> Dismiss
+<button> Save
+==== simple modal peer2
+h4: High Availability - General
+peer2.name [CBI.Value] Peer Name: value=edge-router (placeholder "router2")
+peer2.address [CBI.Value] Peer IP Address: value=fd00:172:30::20 (placeholder "192.168.1.2")
+peer2.source_address [CBI.ListValue] Source Address: select=fd00:172:30::10 {,172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer2.vrrp_only [CBI.FlagValue] VRRP only: [x]
+  help: Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync. In unicast mode keepalived still sends it VRRP adverts.
+<button> Dismiss
+<button> Save
+==== simple modal peer3
+h4: High Availability - General
+peer3.name [CBI.Value] Peer Name: value=legacy (placeholder "router2")
+peer3.address [CBI.Value] Peer IP Address: value=172.30.0.12 (placeholder "192.168.1.2")
+peer3.source_address [CBI.ListValue] Source Address: select= {,172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer3.vrrp_only [CBI.FlagValue] VRRP only: [ ]
+  help: Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync. In unicast mode keepalived still sends it VRRP adverts.
+<button> Dismiss
+<button> Save
+==== simple modal lan
+h4: High Availability - General
+lan.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+lan.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.50.254 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+lan.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+lan.address6 [CBI.Value] Virtual IP Address (IPv6): value=fd00:192:168:50::254 (placeholder "fd00::1")
+  help: Optional. Multicast VRRP advertises it in a second instance with VRID+128; unicast VRRP fails it over with the single instance.
+lan.prefix6 [CBI.Value] IPv6 Prefix Length: value=64 (placeholder "64")
+lan.enabled [CBI.FlagValue] Enable: [x]
+<button> Dismiss
+<button> Save
+==== simple modal lan_old
+h4: High Availability - General
+lan_old.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+lan_old.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.50.253 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+lan_old.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+lan_old.address6 [CBI.Value] Virtual IP Address (IPv6): value= (placeholder "fd00::1")
+  help: Optional. Multicast VRRP advertises it in a second instance with VRID+128; unicast VRRP fails it over with the single instance.
+lan_old.enabled [CBI.FlagValue] Enable: [ ]
+<button> Dismiss
+<button> Save
+==== simple modal vpn6
+h4: High Availability - General
+vpn6.interface [CBI.ListValue] Interface: select=backend {backend,lan}
+vpn6.address [CBI.Value] Virtual IP Address (IPv4): value= (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+vpn6.address6 [CBI.Value] Virtual IP Address (IPv6): value=fd00:172:30::254 (placeholder "fd00::1")
+  help: Optional. Multicast VRRP advertises it in a second instance with VRID+128; unicast VRRP fails it over with the single instance.
+vpn6.prefix6 [CBI.Value] IPv6 Prefix Length: value=64 (placeholder "64")
+vpn6.enabled [CBI.FlagValue] Enable: [x]
+<button> Dismiss
+<button> Save
+==== owsync-advanced
+h2: High Availability - Advanced Config Sync
+<alert> Install the owsync package to synchronize configuration files.
+==== lease-sync-advanced
+h2: High Availability - Advanced Lease Sync
+<alert> Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization.

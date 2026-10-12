@@ -469,7 +469,9 @@ T25 drives the LuCI pages of `ha-node1` with Playwright
   `luci/fixtures/*.uci` config. Fixtures use the old option names; the
   working-tree `uci-defaults` migration runs on them first.
 - `missing`: pages rendered with the `lease-sync` or `owsync` binary
-  removed.
+  removed, then with both removed and without the Software page
+  (`luci-app-package-manager`'s menu entry moved away): the install
+  hints link to it only when it exists.
 - `action`: UCI changes staged by scripted edits. Pages are saved, never
   applied, so the running daemons are untouched.
 - `hint`: the sync sections of the General page and the Status page with

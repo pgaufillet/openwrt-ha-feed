@@ -30,7 +30,8 @@ return view.extend({
 			network.getDevices(),
 			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null),
 			L.resolveDefault(fs.stat('/usr/bin/owsync'), null),
-			L.resolveDefault(uci.load('dhcp'), null)
+			L.resolveDefault(uci.load('dhcp'), null),
+			L.resolveDefault(ui.menu.load(), null)
 		]);
 	},
 
@@ -39,6 +40,10 @@ return view.extend({
 		var netDevs = data[2] || [];
 		var leaseSyncInstalled = data[3] != null;
 		var owsyncInstalled = data[4] != null;
+		// The Software page comes with luci-app-package-manager
+		var softwarePage = [ 'admin', 'system', 'package-manager' ].reduce(function(node, name) {
+			return (node && node.children) ? node.children[name] : null;
+		}, data[6]);
 		var transport = uci.get('ha-cluster', 'config', 'vrrp_transport') || 'multicast';
 		var m, s, o;
 
@@ -87,10 +92,10 @@ return view.extend({
 
 		// Full width in the flex option row, like the DHCP hint
 		var installHint = function(text) {
-			return E('div', { 'class': 'alert-message warning', 'style': 'flex: 1' }, [
-				E('p', {}, text),
-				E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…')))
-			]);
+			var hint = E('div', { 'class': 'alert-message warning', 'style': 'flex: 1' }, E('p', {}, text));
+			if (softwarePage && softwarePage.satisfied)
+				hint.appendChild(E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…'))));
+			return hint;
 		};
 
 		var ifaceIconUrl = function(ifname) {

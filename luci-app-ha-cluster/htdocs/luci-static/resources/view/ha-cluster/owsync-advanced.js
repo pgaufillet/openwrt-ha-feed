@@ -116,7 +116,8 @@ return view.extend({
 	load: function() {
 		return Promise.all([
 			uci.load('ha-cluster'),
-			L.resolveDefault(fs.stat('/usr/bin/owsync'), null)
+			L.resolveDefault(fs.stat('/usr/bin/owsync'), null),
+			L.resolveDefault(ui.menu.load(), null)
 		]);
 	},
 
@@ -124,12 +125,17 @@ return view.extend({
 		var owsyncInstalled = data[1] != null;
 
 		if (!owsyncInstalled) {
+			// The Software page comes with luci-app-package-manager
+			var softwarePage = [ 'admin', 'system', 'package-manager' ].reduce(function(node, name) {
+				return (node && node.children) ? node.children[name] : null;
+			}, data[2]);
+			var hint = E('div', { 'class': 'alert-message warning' },
+				E('p', {}, _('Install the owsync package to synchronize configuration files.')));
+			if (softwarePage && softwarePage.satisfied)
+				hint.appendChild(E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…'))));
 			return E('div', { 'class': 'cbi-map' }, [
 				E('h2', {}, _('High Availability - Advanced Config Sync')),
-				E('div', { 'class': 'alert-message warning' }, [
-					E('p', {}, _('Install the owsync package to synchronize configuration files.')),
-					E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…')))
-				])
+				hint
 			]);
 		}
 

@@ -7,7 +7,8 @@
 #   - snapshot: every page and edit modal rendered for each UCI fixture
 #     (tests/luci/fixtures, old option names, migrated first by the
 #     working-tree uci-defaults script)
-#   - missing: pages rendered with the lease-sync or owsync binary removed
+#   - missing: pages rendered with the lease-sync or owsync binary removed,
+#     then with both removed and without the Software page
 #   - action: UCI changes staged by scripted edits (Save, never Apply)
 #   - hint: where General places the DHCP authoritative hint, and its
 #     absence from Status, with dnsmasq made authoritative

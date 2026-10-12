@@ -6,13 +6,15 @@
 'require view';
 'require form';
 'require uci';
+'require ui';
 'require fs';
 
 return view.extend({
 	load: function() {
 		return Promise.all([
 			uci.load('ha-cluster'),
-			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null)
+			L.resolveDefault(fs.stat('/usr/sbin/lease-sync'), null),
+			L.resolveDefault(ui.menu.load(), null)
 		]);
 	},
 
@@ -20,12 +22,17 @@ return view.extend({
 		var leaseSyncInstalled = data[1] != null;
 
 		if (!leaseSyncInstalled) {
+			// The Software page comes with luci-app-package-manager
+			var softwarePage = [ 'admin', 'system', 'package-manager' ].reduce(function(node, name) {
+				return (node && node.children) ? node.children[name] : null;
+			}, data[2]);
+			var hint = E('div', { 'class': 'alert-message warning' },
+				E('p', {}, _('Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization.')));
+			if (softwarePage && softwarePage.satisfied)
+				hint.appendChild(E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…'))));
 			return E('div', { 'class': 'cbi-map' }, [
 				E('h2', {}, _('High Availability - Advanced Lease Sync')),
-				E('div', { 'class': 'alert-message warning' }, [
-					E('p', {}, _('Install the lease-sync and dnsmasq-ha packages to enable real-time DHCP lease synchronization.')),
-					E('div', { 'class': 'right' }, E('a', { 'class': 'btn', 'href': L.url('admin/system/package-manager') }, _('Go to Software…')))
-				])
+				hint
 			]);
 		}
 
