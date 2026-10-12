@@ -155,7 +155,7 @@ return view.extend({
 		s.addremove = false;
 
 		o = s.option(form.Value, 'sync_interval', _('Poll Interval (seconds)'),
-			_('Fallback scan interval. Changes are also detected via inotify events.'));
+			_('Seconds between scans of the synced files. A local change is sent to the peers after the next scan.'));
 		o.datatype = 'uinteger';
 		o.placeholder = '30';
 

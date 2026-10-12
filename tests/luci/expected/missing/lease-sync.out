@@ -127,7 +127,7 @@ Custom sync groups for services beyond General settings (e.g., VPN, mwan3).
 h3: Global Settings
 owsync global options.
 advanced.sync_interval [CBI.Value] Poll Interval (seconds): value=45 (placeholder "30")
-  help: Fallback scan interval. Changes are also detected via inotify events.
+  help: Seconds between scans of the synced files. A local change is sent to the peers after the next scan.
 advanced.owsync_log_level [CBI.ListValue] Log Level: select=1 {0,1,2,3}
   help: Verbosity of owsync daemon logging.
 h3: Additional Sync Groups
