@@ -6,6 +6,40 @@
 . /usr/share/libubox/jshn.sh
 . /usr/lib/ha-cluster/ha-cluster.sh
 
+# Usage: keepalived_roles <keepalived dump JSON>
+# Prints one name:STATE line per instance. Called in a subshell, which
+# keeps the jshn state clean.
+keepalived_roles() {
+	local instances instance inst_name vrrp_state inst_role
+
+	json_load "$1" 2>/dev/null || return 1
+	json_select status 2>/dev/null || return 1
+	json_get_keys instances
+
+	for instance in $instances; do
+		json_select "$instance" || continue
+		inst_name=""
+		vrrp_state=""
+		if json_select data 2>/dev/null; then
+			json_get_var inst_name iname
+			json_get_var vrrp_state state
+			json_select ..
+		fi
+		json_select ..
+		[ -n "$inst_name" ] || continue
+
+		# VRRP_STATE_* values from keepalived's vrrp.h
+		case "$vrrp_state" in
+			1) inst_role="BACKUP" ;;
+			2) inst_role="MASTER" ;;
+			3) inst_role="FAULT" ;;
+			*) inst_role="UNKNOWN" ;;
+		esac
+
+		echo "$inst_name:$inst_role"
+	done
+}
+
 case "$1" in
 	list)
 		json_init
@@ -56,36 +90,14 @@ case "$1" in
 					keepalived_data=$(ubus call keepalived dump 2>/dev/null)
 
 					if [ -n "$keepalived_data" ]; then
-						# Subshell keeps the jshn state clean; prints one name:STATE per line
-						instance_roles=$(
-							. /usr/share/libubox/jshn.sh
-							json_load "$keepalived_data" 2>/dev/null || exit 1
-							json_select status 2>/dev/null || exit 1
-							json_get_keys instances
+						instance_roles=$(keepalived_roles "$keepalived_data")
 
-							for instance in $instances; do
-								json_select "$instance" || continue
-								inst_name=""
-								vrrp_state=""
-								if json_select data 2>/dev/null; then
-									json_get_var inst_name iname
-									json_get_var vrrp_state state
-									json_select ..
-								fi
-								json_select ..
-								[ -n "$inst_name" ] || continue
-
-								# VRRP_STATE_* values from keepalived's vrrp.h
-								case "$vrrp_state" in
-									1) inst_role="BACKUP" ;;
-									2) inst_role="MASTER" ;;
-									3) inst_role="FAULT" ;;
-									*) inst_role="UNKNOWN" ;;
-								esac
-
-								echo "$inst_name:$inst_role"
-							done
-						)
+						# The dump reads keepalived's stats file without waiting for
+						# it to be written and now and then finds none: retry once
+						if [ -z "$instance_roles" ]; then
+							keepalived_data=$(ubus call keepalived dump 2>/dev/null)
+							instance_roles=$(keepalived_roles "$keepalived_data")
+						fi
 
 						has_fault=0
 						has_master=0

@@ -8,9 +8,15 @@ if [ -n "$FAKE_UBUS_RECORD" ]; then
 			;;
 	esac
 fi
-# Only "call keepalived dump" answers, from the $FAKE_KEEPALIVED fixture.
+# Only "call keepalived dump" answers, from the $FAKE_KEEPALIVED fixtures:
+# the next one at each call, the last one repeated.
 if [ "$1 $2 $3" = "call keepalived dump" ] && [ -n "$FAKE_KEEPALIVED" ]; then
-	cat "$FAKE_KEEPALIVED"
+	calls=$(cat /tmp/fake-keepalived-calls 2>/dev/null || echo 0)
+	echo $((calls + 1)) > /tmp/fake-keepalived-calls
+	set -- $FAKE_KEEPALIVED
+	[ "$calls" -lt "$#" ] || calls=$(($# - 1))
+	shift "$calls"
+	cat "$1"
 	exit 0
 fi
 exit 4
