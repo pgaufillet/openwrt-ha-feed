@@ -65,12 +65,12 @@ number (as it appears under
 prefix:
 
 ```bash
-# Filogic packages for OpenWrt 24.10.8
-docker build -t ha-feed-build-filogic-2410 \
-  --build-arg OPENWRT_VERSION=24.10.8 \
+# Filogic packages for OpenWrt 25.12.1
+docker build -t ha-feed-build-filogic-25121 \
+  --build-arg OPENWRT_VERSION=25.12.1 \
   --build-arg OPENWRT_TARGET=mediatek/filogic \
   docker/
-docker run --rm -v "$PWD/output:/output" ha-feed-build-filogic-2410
+docker run --rm -v "$PWD/output:/output" ha-feed-build-filogic-25121
 ```
 
 The exact SDK (including its toolchain version, which differs between releases)

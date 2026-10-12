@@ -299,10 +299,10 @@ docker build -t ha-feed-build docker/
 docker run --rm -v "$PWD/output:/output" ha-feed-build
 
 # For another architecture and/or OpenWrt release, e.g. MediaTek Filogic
-# (aarch64) on 24.10.8. Use the bare version number, without a "v" prefix.
+# (aarch64) on 25.12.1. Use the bare version number, without a "v" prefix.
 docker build -t ha-feed-build-filogic \
   --build-arg OPENWRT_TARGET=mediatek/filogic \
-  --build-arg OPENWRT_VERSION=24.10.8 \
+  --build-arg OPENWRT_VERSION=25.12.1 \
   docker/
 docker run --rm -v "$PWD/output:/output" ha-feed-build-filogic
 ```
