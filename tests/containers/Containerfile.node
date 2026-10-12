@@ -30,6 +30,7 @@ RUN mkdir -p /tmp/resolv.conf.d && \
     apk del dnsmasq-full dnsmasq 2>/dev/null || true && \
     IPKG_INSTROOT=/ apk add keepalived 2>/dev/null || true && \
     IPKG_INSTROOT=/ apk add --allow-untrusted /tmp/packages/*.apk && \
+    cp /etc/init.d/dnsmasq /tmp/dnsmasq.init.pkg && \
     rm -rf /tmp/packages
 
 # Install network testing tools for T09/T10 tests
@@ -43,16 +44,30 @@ RUN if [ -f /etc/config/dhcp ]; then \
         sed -i "s/option dnssec '1'/option dnssec '0'/" /etc/config/dhcp 2>/dev/null || true; \
     fi
 
-# Disable procd jail for dnsmasq (containers don't support seccomp/capabilities)
-RUN if [ -f /etc/init.d/dnsmasq ]; then \
-        sed -i 's/procd_add_jail/# procd_add_jail/g' /etc/init.d/dnsmasq; \
-    fi
+# Keep dnsmasq jailed as in production. Under rootless podman ujail
+# cannot mknod the jail's /dev nodes, so dnsmasq fails to seed its RNG
+# ("failed to seed the random number generator"): bind-mount
+# /dev/urandom into the jail.
+RUN tab="$(printf '\t')" && \
+    sed -i "/^${tab}procd_add_jail dnsmasq ubus log\$/a\\${tab}procd_add_jail_mount /dev/urandom" \
+        /etc/init.d/dnsmasq
 
 # Enable essential services
 RUN [ -f /etc/init.d/ubus ] && /etc/init.d/ubus enable || true && \
     [ -f /etc/init.d/rpcd ] && /etc/init.d/rpcd enable || true && \
     [ -f /etc/init.d/network ] && /etc/init.d/network enable || true && \
     [ -f /etc/init.d/dnsmasq ] && /etc/init.d/dnsmasq enable || true
+
+# The dnsmasq init must differ from the packaged one by the jail mount
+# line only
+RUN line="$(printf '\tprocd_add_jail_mount /dev/urandom')" && \
+    pkg=/tmp/dnsmasq.init.pkg init=/etc/init.d/dnsmasq && \
+    [ "$(wc -l < "$init")" -eq "$(( $(wc -l < "$pkg") + 1 ))" ] && \
+    grep -vxF "$line" "$init" | cmp -s - "$pkg" && \
+    rm "$pkg" || { \
+        echo "$init must differ from the packaged init by the" \
+             "/dev/urandom jail mount line only" >&2; \
+        exit 1; }
 
 # Copy entrypoint script
 COPY containers/scripts/entrypoint.sh /entrypoint.sh

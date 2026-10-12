@@ -528,6 +528,85 @@ test_synced_hostname() {
         "Lease $ip keeps its hostname on $NODE2"
 }
 
+# Succeed when a node's dnsmasq runs under ujail: one dnsmasq is a child
+# of ujail and none shares init's mount namespace
+# Usage: dnsmasq_jailed "node"
+dnsmasq_jailed() {
+    exec_node "$1" sh -c '
+        init_ns=$(readlink /proc/1/ns/mnt) jailed=0
+        for p in $(pgrep dnsmasq); do
+            [ "$(readlink /proc/$p/exe)" = /usr/sbin/dnsmasq ] || continue
+            [ "$(readlink /proc/$p/ns/mnt)" != "$init_ns" ] || exit 1
+            pp=$(awk "/^PPid:/ {print \$2}" /proc/$p/status)
+            [ "$(readlink /proc/$pp/exe)" = /sbin/ujail ] && jailed=1
+        done
+        [ "$jailed" = 1 ]' 2>/dev/null
+}
+
+# dnsmasq runs jailed, as in production. dhcp-script.sh collects the
+# DNSMASQ_* variables with env inside the jail; without them the event
+# lease-sync receives lacks the lease timing and client identity.
+test_lease_event_fields() {
+    subheader "Lease Event Fields (jailed dnsmasq)"
+
+    local node result=0
+    for node in "$NODE1" "$NODE2"; do
+        if dnsmasq_jailed "$node"; then
+            pass "dnsmasq runs in ujail on $node"
+        else
+            fail "dnsmasq does not run in ujail on $node"
+            result=1
+        fi
+    done
+
+    clear_node_leases || { fail "Could not clear leases"; return 1; }
+
+    local events=/tmp/t05-lease-events listener ip add del
+    listener=$(exec_node "$NODE1" sh -c \
+        "ubus listen dhcp.lease > $events 2>&1 & echo \$!")
+    sleep 1
+
+    ip=$(request_held_lease "$CLIENT1" "$NODE1_CLIENT_IP")
+    if [ -z "$ip" ]; then
+        fail "$CLIENT1 obtained no lease from $NODE1"
+        exec_node "$NODE1" kill "$listener" 2>/dev/null
+        return 1
+    fi
+    release_held_lease "$CLIENT1"
+    wait_for "del event for $ip" 10 \
+        "exec_node $NODE1 grep -q '\"action\":\"del\",\"ip\":\"$ip\"' $events" || true
+    exec_node "$NODE1" kill "$listener" 2>/dev/null
+
+    add=$(exec_node "$NODE1" grep "\"action\":\"add\",\"ip\":\"$ip\"" "$events")
+    del=$(exec_node "$NODE1" grep "\"action\":\"del\",\"ip\":\"$ip\"" "$events")
+    exec_node "$NODE1" rm -f "$events"
+
+    if [ -z "$add" ]; then
+        fail "No add event for $ip on $NODE1"
+        return 1
+    fi
+    local field
+    for field in '"expires":[0-9]+[,}]' '"time_remaining":[0-9]+[,}]' \
+                 '"client_id":"[^"]+"' '"interface":"[^"]+"'; do
+        if echo "$add" | grep -qE "$field"; then
+            pass "Add event for $ip carries ${field%%:*}"
+        else
+            fail "Add event for $ip lacks ${field%%:*}: $add"
+            result=1
+        fi
+    done
+
+    if [ -n "$del" ]; then
+        pass "Release of $ip gives a del event"
+    else
+        fail "No del event for $ip after its release"
+        result=1
+    fi
+
+    wait_for_lease_removal_all "$ip" "lease_exists" 10 || true
+    return $result
+}
+
 # ============================================
 # Cleanup
 # ============================================
@@ -575,6 +654,7 @@ main() {
     test_release_then_lease || result=1
     test_nameless_leases || result=1
     test_synced_hostname || result=1
+    test_lease_event_fields || result=1
 
     cleanup
 
