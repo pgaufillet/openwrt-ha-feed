@@ -216,6 +216,11 @@ uci commit dhcp
 ha-cluster warns (in the log and in LuCI) when dnsmasq is authoritative
 while several nodes serve DHCP, but never changes `/etc/config/dhcp`.
 
+Keep a single enabled `dnsmasq` section on each node: lease-sync only
+reaches the instance registered on ubus as `dnsmasq` (the others register
+as `dnsmasq.<section>`), and ha-cluster writes its `script-on-renewal`
+overlay to the conf-dir of the first section only.
+
 ## UCI Configuration
 
 All configuration lives in `/etc/config/ha-cluster`.
