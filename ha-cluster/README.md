@@ -221,6 +221,12 @@ reaches the instance registered on ubus as `dnsmasq` (the others register
 as `dnsmasq.<section>`), and ha-cluster writes its `script-on-renewal`
 overlay to the conf-dir of the first section only.
 
+Declare DHCP reservations as `host` sections of `/etc/config/dhcp`,
+which the `dhcp` sync group keeps identical on all nodes, rather than in
+`/etc/ethers`: dnsmasq reads that file too (`readethers`, on by
+default), but it lies outside `sync_dir` (`/etc/config`), so owsync
+cannot sync it.
+
 ## UCI Configuration
 
 All configuration lives in `/etc/config/ha-cluster`.
