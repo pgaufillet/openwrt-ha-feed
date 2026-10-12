@@ -39,6 +39,26 @@ echo "src-git hacluster https://github.com/pgaufillet/openwrt-ha-feed.git" >> fe
 ./scripts/feeds install -a -p hacluster
 ```
 
+### Disable a Legacy keepalived
+
+When the keepalived package is installed or upgraded, its post-install
+script starts the standalone keepalived service from
+`/etc/config/keepalived`, before ha-cluster takes keepalived over. A VRRP
+instance left in that file by an earlier setup can then become MASTER
+alongside the cluster. On a router that ran keepalived before, stop it and
+set its configuration aside before installing:
+
+```bash
+/etc/init.d/keepalived stop
+/etc/init.d/keepalived disable
+mv /etc/config/keepalived /etc/config/keepalived.legacy
+```
+
+The standalone service does not start when `/etc/config/keepalived` is
+missing or has `option enabled '0'` in its `globals` section (the package
+default). ha-cluster generates its own keepalived configuration and does
+not read this file.
+
 ### Install Packages
 
 ```bash
@@ -81,6 +101,13 @@ migrates the existing file once:
 - `ubus call owsync status` now reports `enabled` from the standalone
   owsync configuration (`/etc/config/owsync`) only; an owsync instance
   run by ha-cluster shows in its `status` field.
+
+### Standalone keepalived
+
+Upgrading the keepalived package runs `/etc/init.d/keepalived start` even
+while ha-cluster keeps that service disabled. Before upgrading, make sure
+`/etc/config/keepalived` is missing or disabled, as described in
+[Disable a Legacy keepalived](#disable-a-legacy-keepalived).
 
 ## Quick Start
 
@@ -360,7 +387,7 @@ apk update
 
 `apk update` must report no `UNTRUSTED signature` warning for the repository.
 
-`dnsmasq-ha` replaces the stock `dnsmasq`, which serves the router's own DNS: once `dnsmasq` is removed, the router can no longer resolve the repository host. For the first installation, copy [`scripts/install-ha-cluster.sh`](scripts/install-ha-cluster.sh) to the router and run it: it installs the dependencies and downloads the feed packages first, then swaps `dnsmasq` for `dnsmasq-ha` offline.
+`dnsmasq-ha` replaces the stock `dnsmasq`, which serves the router's own DNS: once `dnsmasq` is removed, the router can no longer resolve the repository host. For the first installation, copy [`scripts/install-ha-cluster.sh`](scripts/install-ha-cluster.sh) to the router and run it: it installs the dependencies and downloads the feed packages first, then swaps `dnsmasq` for `dnsmasq-ha` offline. On a router that ran keepalived before, first [disable the legacy keepalived](#disable-a-legacy-keepalived).
 
 ```bash
 sh install-ha-cluster.sh
