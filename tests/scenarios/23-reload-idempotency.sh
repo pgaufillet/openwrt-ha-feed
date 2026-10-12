@@ -13,6 +13,9 @@
 #     stop) can still restore the services to their pre-takeover state.
 #   - Options set in the named "advanced" section are honoured in the
 #     generated daemon configs (the section must be addressable by name).
+#   - A stop does not replay the leases to the peer: dnsmasq, restarted
+#     to drop the overlay, reports every lease again, which lease-sync
+#     would broadcast as fresh UPDATEs if it still ran.
 #
 # Only NODE1 is churned; NODE2 keeps the VIP during the destructive cases.
 #
@@ -40,6 +43,7 @@ KEEPALIVED_CONF="/tmp/ha-cluster/keepalived.conf"
 OWSYNC_CONF="/tmp/ha-cluster/owsync.conf"
 LEASE_SYNC_CONF="/tmp/ha-cluster/lease-sync.conf"
 STATE_FILE="/etc/ha-cluster/service_states"
+CLIENT1="ha-client1"
 
 # ============================================
 # Test Cases
@@ -145,6 +149,105 @@ test_overlay_tmp_hidden_from_dnsmasq() {
     return $rc
 }
 
+# Epoch timestamp of the first syslog line (logread -t) matching a pattern
+# Usage: log_since "node" "$t0" | _log_ts "pattern"
+_log_ts() {
+    grep "$1" | head -n1 | sed -n 's/^[^[]*\[\([0-9.]*\)\].*/\1/p'
+}
+
+# Releasing dnsmasq on stop restarts it, and it reports each lease of its
+# lease file again as "old". lease-sync must be gone by then, or it
+# broadcasts them to the peer as UPDATEs with fresh timestamps.
+test_stop_does_not_replay_leases() {
+    subheader "Stop does not replay leases to the peer"
+    local rc=0
+
+    if ! client_running "$CLIENT1"; then
+        skip "Stop replay test" "$CLIENT1 container not running"
+        return 0
+    fi
+
+    local ip
+    ip=$(dhcp_request "$CLIENT1")
+    if [ -z "$ip" ]; then
+        fail "$CLIENT1 failed to obtain a DHCP lease"
+        return 1
+    fi
+    if ! wait_for_lease "$NODE1" "$ip" "$SYNC_TIMEOUT" ||
+       ! wait_for_lease "$NODE2" "$ip" "$SYNC_TIMEOUT"; then
+        fail "Lease $ip not replicated on both nodes"
+        return 1
+    fi
+    info "Lease $ip present on $NODE1 and $NODE2"
+
+    # The stopping node's identity in the peer's log (the daemon keeps it
+    # in its state dir), and the pid of ha-cluster's lease-sync instance
+    local node_id ls_pid t0
+    node_id=$(exec_node "$NODE1" cat /var/lib/lease-sync/node_id 2>/dev/null)
+    ls_pid=$(exec_node "$NODE1" sh -c 'ubus call service list "{\"name\":\"ha-cluster\"}" |
+        jsonfilter -e "@[\"ha-cluster\"].instances[\"lease-sync\"].pid"' 2>/dev/null)
+    if [ -z "$node_id" ] || [ -z "$ls_pid" ]; then
+        fail "lease-sync not running on $NODE1 (node_id=${node_id:-none})"
+        return 1
+    fi
+    info "$NODE1 lease-sync: node_id=$node_id pid=$ls_pid"
+
+    # Let the DHCP exchange's own events settle before opening the window
+    sleep 3
+    t0=$(exec_node "$NODE2" date +%s)
+
+    exec_node "$NODE1" /etc/init.d/ha-cluster stop >/dev/null 2>&1
+
+    # Precondition: the restarted dnsmasq did report the lease again
+    local i=0 replayed=""
+    while [ $i -lt 10 ]; do
+        replayed=$(log_since "$NODE1" "$t0" |
+            grep "lease-sync-hotplug: update event for $ip published")
+        [ -n "$replayed" ] && break
+        sleep 1
+        i=$((i + 1))
+    done
+    assert_ne "" "$replayed" \
+        "dnsmasq on $NODE1 reported $ip again after the stop" || rc=1
+
+    # Leave time for any broadcast to reach the peer
+    sleep 3
+
+    # Whether a replay escapes depends on how fast procd delivers the
+    # events, so check the order itself: the daemon exits before dnsmasq
+    # restarts.
+    local exit_ts start_ts
+    exit_ts=$(log_since "$NODE1" "$t0" | _log_ts "lease-sync\[$ls_pid\]: lease-sync daemon terminated")
+    start_ts=$(log_since "$NODE1" "$t0" | _log_ts "dnsmasq\[[0-9]*\]: started")
+    info "lease-sync exit: ${exit_ts:-none}, dnsmasq start: ${start_ts:-none}"
+    if [ -n "$exit_ts" ] && [ -n "$start_ts" ] &&
+       awk -v e="$exit_ts" -v s="$start_ts" 'BEGIN { exit !(e < s) }'; then
+        pass "$NODE1 lease-sync exited before dnsmasq restarted"
+    else
+        fail "$NODE1 lease-sync exited before dnsmasq restarted"
+        rc=1
+    fi
+
+    local processed received
+    processed=$(log_since "$NODE1" "$t0" |
+        grep "lease-sync\[$ls_pid\]: Processed local lease: .* - old")
+    received=$(log_since "$NODE2" "$t0" |
+        grep "lease-sync\[[0-9]*\]: Received UPDATE for .* from $node_id\$")
+
+    assert_eq "" "$processed" \
+        "$NODE1 lease-sync (pid $ls_pid) broadcast no replayed lease" || rc=1
+    assert_eq "" "$received" \
+        "$NODE2 received no UPDATE from $NODE1 caused by the stop" || rc=1
+
+    exec_node "$NODE1" /etc/init.d/ha-cluster start >/dev/null 2>&1
+    wait_for_cluster_healthy 30
+
+    dhcp_release "$CLIENT1"
+    clear_node_leases || warn "Leases not cleared on both nodes"
+
+    return $rc
+}
+
 # The pre-takeover state snapshot must not be overwritten by a reload,
 # otherwise release could no longer restore the standalone services.
 test_service_state_survives_reload() {
@@ -241,6 +344,7 @@ main() {
 
     # Reload/restart cases (each restores cluster health).
     test_reload_keeps_dnsmasq_running || result=1
+    test_stop_does_not_replay_leases || result=1
     test_service_state_survives_reload || result=1
     test_advanced_section_honoured || result=1
 

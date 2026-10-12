@@ -75,11 +75,24 @@ start_service() {
 stop_service() {
 	ha_log_info "Stopping HA cluster"
 
-	ha_release_dnsmasq
-	ha_manage_services "release"
-
 	# procd stops the instances
 	return 0
+}
+
+# Runs after procd_kill, which only signals the instances. lease-sync must
+# be gone before dnsmasq restarts and replays its leases, and the
+# standalone daemons need the ports back. procd sends SIGKILL after
+# term_timeout (5 s).
+service_stopped() {
+	local i=0
+
+	while procd_running ha-cluster && [ "$i" -lt 10 ]; do
+		sleep 1
+		i=$((i + 1))
+	done
+
+	ha_release_dnsmasq
+	ha_manage_services "release"
 }
 
 reload_service() {

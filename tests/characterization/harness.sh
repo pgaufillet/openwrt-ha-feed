@@ -80,7 +80,8 @@ show_dir() {
 }
 
 # The init script without rc.common: procd calls are printed, and
-# start/stop run the service functions directly.
+# start/stop run the service functions directly, stop in rc.common's
+# order (procd_kill ends the instances).
 load_init() {
 	. /etc/init.d/ha-cluster
 
@@ -89,10 +90,15 @@ load_init() {
 	procd_append_param() { printf '\tappend'; args "$@"; }
 	procd_close_instance() { echo "end"; }
 	procd_add_reload_trigger() { printf 'reload_trigger'; args "$@"; }
-	procd_running() { return 0; }
+	procd_running() { [ -z "$_char_killed" ]; }
+	procd_kill() { _char_killed=1; }
 	procd_send_signal() { printf 'signal'; args "$@"; }
 	start() { start_service; }
-	stop() { stop_service; }
+	stop() {
+		stop_service
+		procd_kill ha-cluster
+		service_stopped
+	}
 }
 
 observe() {
@@ -140,7 +146,7 @@ case "$mode" in
 			echo "== $STEP2"
 			case "$STEP2" in
 				reload) reload_service ;;
-				stop) stop_service ;;
+				stop) stop ;;
 			esac
 			echo "rc=$?"
 			observe
