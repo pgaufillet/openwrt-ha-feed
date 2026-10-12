@@ -282,7 +282,7 @@ logread | grep -E "(ha-cluster|keepalived|owsync|lease-sync)"
 |-------|----------|
 | VIP not appearing | Check interface name matches UCI config |
 | Sync not working | Verify encryption keys match on both nodes |
-| Peer unreachable | Check firewall allows ports 4321 (owsync), 4322 (lease-sync), 112 (VRRP) |
+| Peer unreachable | Check the firewall allows owsync (TCP 4321), lease-sync (UDP 5378) and VRRP (IP protocol 112, or 51 with `auth_type 'ah'`) between the nodes |
 | Split brain | Ensure reliable network between nodes |
 
 ## Development
