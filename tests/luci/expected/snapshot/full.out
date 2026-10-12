@@ -54,7 +54,6 @@ config._group_dhcp [CBI.FlagValue] DHCP and DNS: [x]
   help: /etc/config/dhcp: address pools, static leases, DNS settings.
 config._group_firewall [CBI.FlagValue] Firewall: [x]
   help: /etc/config/firewall: zones, rules, port forwards. Review the rules before enabling: they apply to every node.
-config._group_others [CBI.DummyValue] Other files: text "3 groups (2 enabled) Advanced Config Sync →"
 h3: DHCP Leases
 config.lease_sync [CBI.FlagValue] Real-time Lease Sync: [x]
   help: Replicates DHCP leases between nodes so that clients keep their address after a failover. Independent of the DHCP configuration sync above.

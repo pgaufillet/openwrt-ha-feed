@@ -611,21 +611,6 @@ return view.extend({
 				authoritativeHint();
 			groupFlag('firewall', _('Firewall'),
 				_('<code>/etc/config/firewall</code>: zones, rules, port forwards. Review the rules before enabling: they apply to every node.'));
-
-			var others = groups.filter(function(group) {
-				return group['.name'] !== 'dhcp' && group['.name'] !== 'firewall';
-			});
-			o = s.option(form.DummyValue, '_group_others', _('Other files'));
-			o.renderWidget = function() {
-				var enabled = others.filter(groupEnabled).length;
-				return E('div', {}, [
-					E('em', {}, others.length
-						? N_(others.length, '%d group', '%d groups').format(others.length) + ' (' + _('%d enabled').format(enabled) + ')'
-						: _('none')),
-					' ',
-					E('a', { 'href': L.url('admin/services/ha-cluster/owsync-advanced') }, _('Advanced Config Sync') + ' \u2192')
-				]);
-			};
 		} else {
 			var enabledGroups = groups.filter(groupEnabled).length;
 			o = s.option(form.DummyValue, '_owsync_missing');
