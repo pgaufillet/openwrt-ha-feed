@@ -237,7 +237,7 @@ All configuration lives in `/etc/config/ha-cluster`.
 |--------|------|---------|-------------|
 | `enabled` | bool | `0` | Enable/disable ha-cluster |
 | `node_priority` | int | `100` | VRRP priority (1-255, higher wins MASTER) |
-| `vrrp_transport` | string | `multicast` | VRRP transport: `multicast` or `unicast`. When `unicast`, auto-derives addresses from peer config |
+| `vrrp_transport` | string | `multicast` | VRRP transport: `multicast` or `unicast`. When `unicast`, instances without `unicast_peer` derive their addresses from the peers |
 | `sync_method` | string | `owsync` | File sync backend; `owsync` is the only one, ha-cluster refuses to start with any other value |
 | `encryption_key` | string | | 256-bit hex key enabling AES-256-GCM (empty = plaintext); use LuCI "Generate" button or `hexdump -n 32 -v -e '1/1 "%02x"' /dev/urandom` |
 | `lease_sync` | bool | `0` | DHCP lease sync (lease-sync and dnsmasq-ha); the shipped config sets it to `1` |
@@ -258,6 +258,12 @@ list), a single instance is created in the address family of
 fail over with it without being advertised, and peers of the other family
 are ignored with a warning. A `unicast_src_ip` matching the family of no
 peer is ignored with an error, and the first peer sets the family.
+
+With `vrrp_transport` `unicast`, an instance without its own `unicast_peer`
+list advertises to every peer `address` and, unless it sets
+`unicast_src_ip`, from the first peer `source_address`. This derivation
+fits only instances on the peers' network: an instance on another
+interface sets both `unicast_peer` and `unicast_src_ip`.
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -296,7 +302,7 @@ same instance for atomic failover.
 |--------|------|---------|-------------|
 | `name` | string | | Peer identifier |
 | `address` | string | | Peer IP address |
-| `source_address` | string | | Local IP to use when contacting this peer (also used as `unicast_src_ip` for auto-derivation) |
+| `source_address` | string | | Local IP to use when contacting this peer (the first one set is also the auto-derived `unicast_src_ip`) |
 | `vrrp_only` | bool | `0` | Router not running ha-cluster (e.g. not OpenWrt): VRRP peer only, never synced |
 
 ### Sync groups (`config sync_group '<name>'`)
