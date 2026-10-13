@@ -109,6 +109,85 @@ while ha-cluster keeps that service disabled. Before upgrading, make sure
 `/etc/config/keepalived` is missing or disabled, as described in
 [Disable a Legacy keepalived](#disable-a-legacy-keepalived).
 
+### Attended Sysupgrade
+
+The attended sysupgrade server (LuCI Attended Sysupgrade, `owut`) builds
+the new image from the packages installed on the router, and only knows
+the official ones. With the feed's packages installed, the build fails
+with:
+
+```
+Impossible package selection: missing (dnsmasq-ha, ha-cluster, lease-sync, luci-app-ha-cluster, owsync)
+```
+
+Swap them out first, one node at a time, while the other node keeps the
+VIPs:
+
+1. Back up the router (`sysupgrade -b /tmp/backup.tar.gz`, then copy the
+   file off the router).
+2. sysupgrade only keeps the configuration of installed packages. Keep
+   the files of the packages about to be removed, and the feed's signing
+   key (the lines can stay for the next attended sysupgrade):
+
+   ```bash
+   cat >> /etc/sysupgrade.conf <<'EOF'
+   /etc/config/ha-cluster
+   /etc/config/owsync
+   /etc/config/lease-sync
+   /etc/owsync/
+   /etc/lease-sync/
+   /etc/apk/keys/ha_feed_apk.pem
+   EOF
+   ```
+
+3. Stop ha-cluster: the peer takes over the VIPs.
+
+   ```bash
+   /etc/init.d/ha-cluster stop
+   /etc/init.d/ha-cluster disable
+   ```
+
+4. While DNS still works, download the stock `dnsmasq` into an empty
+   directory:
+
+   ```bash
+   mkdir -p /tmp/dnsmasq-stock && cd /tmp/dnsmasq-stock
+   apk fetch dnsmasq
+   ```
+
+   If the router relies on the extra features of `dnsmasq-full` (nftset,
+   DNSSEC), fetch it instead, with the libraries that are removed along
+   with `dnsmasq-ha` (OpenWrt 25.12 package names):
+
+   ```bash
+   apk fetch dnsmasq-full libnettle8 libgmp10 libnetfilter-conntrack3 kmod-nf-conntrack-netlink
+   ```
+
+5. Remove the feed's packages and install the downloaded ones (DNS is
+   unavailable between the two commands). Official packages are signed
+   through the repository index, not individually, so a local file needs
+   `--allow-untrusted`:
+
+   ```bash
+   apk del luci-app-ha-cluster ha-cluster lease-sync owsync dnsmasq-ha
+   apk add --allow-untrusted /tmp/dnsmasq-stock/*.apk
+   ```
+
+   `apk del` may print `Command failed: ubus call service delete
+   { "name": "ha-cluster" } (Not found)`: ha-cluster is already stopped.
+   Modified configuration files, such as `/etc/config/dhcp`, stay in
+   place; apk writes the package's version next to them as `*.apk-new`.
+6. Run the attended sysupgrade.
+7. After the reboot, reinstall from the feed with
+   [`scripts/install-ha-cluster.sh`](scripts/install-ha-cluster.sh) (see
+   [Configure Routers to Use the Feed](#4-configure-routers-to-use-the-feed)).
+   ha-cluster starts again from the kept `/etc/config/ha-cluster`. The
+   new image starts the standalone keepalived if `/etc/config/keepalived`
+   enables it: see
+   [Disable a Legacy keepalived](#disable-a-legacy-keepalived).
+8. Once the node is back in the cluster, upgrade the other one the same
+   way.
+
 ## Quick Start
 
 ### Quick Setup (5 minutes)
