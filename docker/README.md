@@ -27,9 +27,8 @@ docker build -t ha-feed-build docker/
 docker run --rm -v "$PWD/output:/output" ha-feed-build
 ```
 
-The built packages land in `./output/<arch>/ha_feed/` on the host, mirroring
-the SDK's `bin/packages/` layout. The file format follows the target release:
-`.apk` on 25.12 and later, `.ipk` on 24.10 and earlier.
+The built `.apk` packages land in `./output/<arch>/ha_feed/` on the host,
+mirroring the SDK's `bin/packages/` layout.
 
 > **Rootless Podman users:** add `--userns=keep-id` so the container can write
 > to the mounted output directory, e.g.
@@ -59,8 +58,8 @@ docker run --rm -v "$PWD/output:/output" ha-feed-build-filogic
 ## Choosing an OpenWrt version
 
 The image is built for release `25.12.0` by default. Pass `--build-arg
-OPENWRT_VERSION=<version>` to target another release — use the bare version
-number (as it appears under
+OPENWRT_VERSION=<version>` to target another release (25.12 or later) — use
+the bare version number (as it appears under
 [`releases/`](https://downloads.openwrt.org/releases/)), **without** a `v`
 prefix:
 
@@ -88,7 +87,7 @@ it may fail to install on an older point release of the same branch
 - **Building for one device:** match its exact release. Simplest and safest.
 - **Reusing the same package across several devices** on one branch at
   different point releases: build against the **earliest** point release you
-  target (`24.10.0`, `25.12.0`, ...). Linking against the oldest library set
+  target (e.g. `25.12.0`). Linking against the oldest library set
   maximises install compatibility across the branch.
 - **`dnsmasq-ha`** replaces the core `dnsmasq` and is more tightly coupled to
   its release than the userspace packages — prefer a per-release build for it.
@@ -107,9 +106,8 @@ Available packages: `dnsmasq-ha`, `owsync`, `lease-sync`, `ha-cluster`,
 ## Signing a package index
 
 To produce a signed package index (so routers can update from an HTTP
-server), mount the private signing key and set `SIGN_KEY`. On 25.12 and
-later the key is an apk ECDSA key (see the top-level README for how to
-generate it):
+server), mount the private signing key and set `SIGN_KEY`. The key is an apk
+ECDSA key (see the top-level README for how to generate it):
 
 ```bash
 docker run --rm \
@@ -120,12 +118,9 @@ docker run --rm \
 ```
 
 The signed index `packages.adb` (and `index.json`) is copied into
-`./output` alongside the packages. On 24.10 and earlier, `SIGN_KEY` is a
-[usign](https://openwrt.org/docs/guide-user/security/keygen) private key
-and the index files are `Packages`, `Packages.gz`, `Packages.sig` and
-`index.json`. See the "Building and Hosting Your Own Package Repository"
-section of the top-level [README](../README.md) for how to deploy and
-consume the signed feed.
+`./output` alongside the packages. See the "Building and Hosting Your Own
+Package Repository" section of the top-level [README](../README.md) for how
+to deploy and consume the signed feed.
 
 ## Building from a local checkout
 

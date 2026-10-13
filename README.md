@@ -280,7 +280,7 @@ Start the cluster:
 - **Key Management**: Keys stored in config files, never exposed on command line
 - **Network**: Designed for trusted LAN segments; use VPN for untrusted networks
 
-## Known Limitations (v1.0)
+## Known Limitations
 
 ### IPv6 Support
 
@@ -296,7 +296,7 @@ Start the cluster:
 
 **Why:** lease-sync integrates with dnsmasq, not odhcpd. Since default OpenWrt uses SLAAC (stateless), most users are unaffected.
 
-**Recommended Workaround - Disable odhcpd:** The simplest and most reliable approach for v1.0:
+**Recommended Workaround - Disable odhcpd:** The simplest and most reliable approach:
 
 ```bash
 # Disable odhcpd, let dnsmasq handle all DHCP/RA
@@ -386,12 +386,12 @@ docker build -t ha-feed-build-filogic \
 docker run --rm -v "$PWD/output:/output" ha-feed-build-filogic
 ```
 
-The built packages land in `./output/<arch>/ha_feed/` (`.apk` on 25.12+,
-`.ipk` on 24.10 and earlier). The default is x86-64 on OpenWrt 25.12.0; the
-matching SDK for any release/target is resolved and checksum-verified
-automatically. See [`docker/README.md`](docker/README.md) for version and
-target selection (including which release to build against for multi-device
-compatibility), index signing, and building from a local checkout.
+The built `.apk` packages land in `./output/<arch>/ha_feed/`. The default
+is x86-64 on OpenWrt 25.12.0; the matching SDK for any release/target is
+resolved and checksum-verified automatically. See
+[`docker/README.md`](docker/README.md) for version and target selection
+(including which release to build against for multi-device compatibility),
+index signing, and building from a local checkout.
 
 ### Setting Up the Build Environment (full buildroot)
 
