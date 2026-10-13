@@ -42,8 +42,8 @@ before the swap.
 
 ## Upgrading
 
-Upgrading from 1.0.x migrates `/etc/config/ha-cluster` in place before
-ha-cluster restarts:
+Upgrading from 1.0.x to 2.0.0 migrates `/etc/config/ha-cluster` in place
+before ha-cluster restarts:
 
 - `service` sections become `sync_group` sections
 - the `dhcp` group's `sync_leases` becomes the global `lease_sync`, and
@@ -51,6 +51,9 @@ ha-cluster restarts:
 - a `sync_method` other than `owsync` disables every sync group and is
   removed
 - peer `sync_enabled '0'` becomes `vrrp_only '1'`
+- an unnamed `config advanced` section, as shipped in 1.0.x, is named
+  `advanced` so that its settings are read: only the first one if
+  several, and none if a section is already named `advanced`
 - `lease_sync_persist_interval` is removed
 
 The migration expects VRRP settings in `vrrp_instance` sections. A

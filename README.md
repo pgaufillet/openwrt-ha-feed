@@ -73,11 +73,25 @@ apk add lease-sync    # DHCP sync only
 
 ## Upgrading
 
+ha-cluster and luci-app-ha-cluster 2.0.0 change the schema of
+`/etc/config/ha-cluster`; the existing file is migrated on install (see
+below). Upgrade both packages together (e.g. `apk upgrade`): the 2.0.0
+web interface does not work with a 1.x ha-cluster, nor the reverse.
+Upgrade all nodes in the same maintenance window. The file is not synced
+between nodes: check the migrated file on each one.
+
+The full list of behaviour changes is in
+[ha-cluster's upgrade notes](ha-cluster/README.md#upgrading). One needs
+action: with unicast peers, a VRRP instance whose peers and VIPs are all
+IPv6 now runs as `<name>` with its VRID instead of `<name>_v6` with
+VRID+128. Nodes on different versions do not see each other for that
+instance, and hotplug scripts matching `<name>_v6` must be updated.
+
 ### Sync options renamed
 
 The sync options of `/etc/config/ha-cluster` were renamed after what they
-do. When the new ha-cluster package is installed, a `uci-defaults` script
-migrates the existing file once:
+do. When ha-cluster 2.0.0 is installed, a `uci-defaults` script migrates
+the existing file once:
 
 | Before | After |
 |--------|-------|
@@ -88,8 +102,6 @@ migrates the existing file once:
 | peer `option sync_enabled '0'` | peer `option vrrp_only '1'` |
 | peer `option sync_enabled '1'` | removed (default) |
 
-- Upgrade all nodes in the same maintenance window. `/etc/config/ha-cluster`
-  is not synced between nodes: check the migrated file on each one.
 - When an option is changed, `uci commit` rewrites the file and drops its
   comments. A file that only needs its sections renamed keeps them.
 - The migration leaves an already migrated file unchanged.
