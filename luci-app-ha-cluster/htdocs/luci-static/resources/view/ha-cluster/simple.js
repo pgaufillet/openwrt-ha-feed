@@ -135,7 +135,7 @@ return view.extend({
 		o.placeholder = '100';
 
 		o = s.option(form.ListValue, 'vrrp_transport', _('VRRP Transport'),
-			_('Multicast is the default. Use unicast when multicast is unavailable on the network.'));
+			_('Multicast is the default. Use unicast when multicast is unavailable on the network. Unicast adverts go to the peers below, from the first Source Address set: this fits only failover groups on the peers\' network; another group sets its own unicast addresses in Advanced VRRP.'));
 		o.value('multicast', _('Multicast'));
 		o.value('unicast', _('Unicast'));
 		o.default = 'multicast';
@@ -148,7 +148,7 @@ return view.extend({
 		s = m.section(form.GridSection, 'peer', _('Peer Routers'),
 			_('Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only.') + ' ' +
 			(transport === 'unicast'
-				? _('In unicast mode, VRRP adverts are sent to every peer listed here.')
+				? _('In unicast mode, VRRP adverts are sent to every peer listed here, except for failover groups with their own unicast peers.')
 				: _('In multicast mode, VRRP does not use this list.')));
 		s.anonymous = true;
 		s.addremove = true;

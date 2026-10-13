@@ -375,7 +375,7 @@ return view.extend({
 
 		o = s.taboption('unicast', form.Value, 'unicast_src_ip', _('Unicast Source IP'),
 			(transport === 'unicast' && autoSrcIp)
-				? _('Per-instance override. When empty, auto-derived from peer config: %s').format(autoSrcIp)
+				? _('Per-instance override. When this and Unicast Peer IPs are empty, auto-derived from peer config: %s. The derived value fits only an instance on the peers\' network; on another network, set this and Unicast Peer IPs.').format(autoSrcIp)
 				: _('This router\'s address for unicast VRRP, in the family of a unicast peer. When empty, keepalived uses an address of the interface.'));
 		o.datatype = 'ipaddr';
 		o.placeholder = (transport === 'unicast' && autoSrcIp)
@@ -386,7 +386,7 @@ return view.extend({
 
 		o = s.taboption('unicast', form.DynamicList, 'unicast_peer', _('Unicast Peer IPs'),
 			(transport === 'unicast' && autoPeerAddrs.length > 0)
-				? _('Per-instance override. When empty, auto-derived from peer config: %s').format(autoPeerAddrs.join(', '))
+				? _('Per-instance override. When empty, auto-derived from peer config: %s. The derived list fits only an instance on the peers\' network; on another network, set this and Unicast Source IP.').format(autoPeerAddrs.join(', '))
 				: _('Addresses of the other routers for unicast VRRP. Any entry makes this group unicast; only the peers in the family of the source IP, or else of the first peer, are used.'));
 		o.datatype = 'ipaddr';
 		o.placeholder = _('e.g., 192.168.1.2');

@@ -29,9 +29,9 @@ config.enabled [CBI.FlagValue] Enable HA Cluster: [x]
 config.node_priority [CBI.Value] Priority: value=150 (placeholder "100")
   help: VRRP priority (1-255). Higher priority becomes MASTER.
 config.vrrp_transport [CBI.ListValue] VRRP Transport: select=unicast {multicast,unicast}
-  help: Multicast is the default. Use unicast when multicast is unavailable on the network.
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network. Unicast adverts go to the peers below, from the first Source Address set: this fits only failover groups on the peers' network; another group sets its own unicast addresses in Advanced VRRP.
 h3: Peer Routers
-Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In unicast mode, VRRP adverts are sent to every peer listed here.
+Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In unicast mode, VRRP adverts are sent to every peer listed here, except for failover groups with their own unicast peers.
 | Peer | Role | 
 | peer1: ha-node2 (172.30.0.11) | Cluster node | [☰][Edit][Delete]
 | peer2: edge-router (fd00:172:30::20) | VRRP only | [☰][Edit][Delete]
@@ -195,9 +195,9 @@ main.track_script [CBI.DynamicList] Track Scripts:
 [tab Unicast]
 h4: High Availability - Advanced VRRP - main
 main.unicast_src_ip [CBI.Value] Unicast Source IP: value= (placeholder "Auto: 172.30.0.10")
-  help: Per-instance override. When empty, auto-derived from peer config: 172.30.0.10
+  help: Per-instance override. When this and Unicast Peer IPs are empty, auto-derived from peer config: 172.30.0.10. The derived value fits only an instance on the peers' network; on another network, set this and Unicast Peer IPs.
 main.unicast_peer [CBI.DynamicList] Unicast Peer IPs: 
-  help: Per-instance override. When empty, auto-derived from peer config: 172.30.0.11, fd00:172:30::20, 172.30.0.12
+  help: Per-instance override. When empty, auto-derived from peer config: 172.30.0.11, fd00:172:30::20, 172.30.0.12. The derived list fits only an instance on the peers' network; on another network, set this and Unicast Source IP.
 <button> Dismiss
 <button> Save
 ==== keepalived-advanced modal vpn
@@ -242,9 +242,9 @@ vpn.track_script [CBI.DynamicList] Track Scripts: item=check_gateway
 [tab Unicast]
 h4: High Availability - Advanced VRRP - vpn
 vpn.unicast_src_ip [CBI.Value] Unicast Source IP: value=172.30.0.10 (placeholder "Auto: 172.30.0.10")
-  help: Per-instance override. When empty, auto-derived from peer config: 172.30.0.10
+  help: Per-instance override. When this and Unicast Peer IPs are empty, auto-derived from peer config: 172.30.0.10. The derived value fits only an instance on the peers' network; on another network, set this and Unicast Peer IPs.
 vpn.unicast_peer [CBI.DynamicList] Unicast Peer IPs: item=172.30.0.11
-  help: Per-instance override. When empty, auto-derived from peer config: 172.30.0.11, fd00:172:30::20, 172.30.0.12
+  help: Per-instance override. When empty, auto-derived from peer config: 172.30.0.11, fd00:172:30::20, 172.30.0.12. The derived list fits only an instance on the peers' network; on another network, set this and Unicast Source IP.
 <button> Dismiss
 <button> Save
 ==== keepalived-advanced modal check_gateway

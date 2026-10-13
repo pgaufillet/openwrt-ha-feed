@@ -29,9 +29,9 @@ config.enabled [CBI.FlagValue] Enable HA Cluster: [x]
 config.node_priority [CBI.Value] Priority: value=150 (placeholder "100")
   help: VRRP priority (1-255). Higher priority becomes MASTER.
 config.vrrp_transport [CBI.ListValue] VRRP Transport: select=unicast {multicast,unicast}
-  help: Multicast is the default. Use unicast when multicast is unavailable on the network.
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network. Unicast adverts go to the peers below, from the first Source Address set: this fits only failover groups on the peers' network; another group sets its own unicast addresses in Advanced VRRP.
 h3: Peer Routers
-Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In unicast mode, VRRP adverts are sent to every peer listed here.
+Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In unicast mode, VRRP adverts are sent to every peer listed here, except for failover groups with their own unicast peers.
 | Peer | Role | 
 | peer1: ha-node2 (172.30.0.11) | Cluster node | [☰][Edit][Delete]
 | peer2: edge-router (fd00:172:30::20) | VRRP only | [☰][Edit][Delete]
