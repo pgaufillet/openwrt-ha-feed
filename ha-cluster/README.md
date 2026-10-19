@@ -27,7 +27,7 @@ If you prefer to install manually, or if the script fails:
 apk update
 
 # 2. Pre-install ALL dependencies from official feeds (while DNS works)
-apk add libnettle kmod-ipt-ipset libnetfilter-conntrack nftables-json
+apk add libnettle libnetfilter-conntrack nftables-json
 apk add keepalived
 apk add libopenssl3
 

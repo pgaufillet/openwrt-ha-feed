@@ -106,7 +106,7 @@ fi
 info "Pre-installing dependencies from official feeds..."
 
 # dnsmasq-ha extra deps (not in stock dnsmasq)
-apk add libnettle kmod-ipt-ipset libnetfilter-conntrack nftables-json 2>/dev/null || true
+apk add libnettle libnetfilter-conntrack nftables-json 2>/dev/null || true
 
 # ha-cluster deps (keepalived has many transitive deps: libnl, libipset, kmod-macvlan, etc.)
 apk add keepalived || die "Failed to install keepalived"
