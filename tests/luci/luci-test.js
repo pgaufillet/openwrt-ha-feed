@@ -127,9 +127,15 @@ async function settle(page) {
 	await page.waitForTimeout(200);
 }
 
+// Status loads rpcd status twice, and each call pings every unreachable
+// peer for 1 s
+const STATUS_LOAD_TIMEOUT = 15000;
+
 async function openPage(page, view) {
-	await page.goto(`${BASE}/cgi-bin/luci/admin/services/ha-cluster/${view}`,
-		{ waitUntil: 'networkidle' });
+	const opts = { waitUntil: 'networkidle' };
+	if (view === 'status')
+		opts.timeout = STATUS_LOAD_TIMEOUT;
+	await page.goto(`${BASE}/cgi-bin/luci/admin/services/ha-cluster/${view}`, opts);
 	await page.waitForSelector('#view > *');
 	await settle(page);
 }
