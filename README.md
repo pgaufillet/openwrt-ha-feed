@@ -14,11 +14,11 @@ A high-availability solution for OpenWrt routers, providing automatic failover, 
 
 | Package | Description |
 |---------|-------------|
-| `ha-cluster` | Core orchestration - manages keepalived, owsync, and lease-sync |
-| `luci-app-ha-cluster` | Web interface for configuration and monitoring |
-| `owsync` | Lightweight encrypted file synchronization daemon |
-| `lease-sync` | Real-time DHCP lease replication daemon |
-| `dnsmasq-ha` | dnsmasq with ubus lease management patches |
+| [`ha-cluster`](https://github.com/pgaufillet/openwrt-ha-feed/blob/master/ha-cluster/README.md) | Core orchestration - manages keepalived, owsync, and lease-sync |
+| [`luci-app-ha-cluster`](https://github.com/pgaufillet/openwrt-ha-feed/blob/master/luci-app-ha-cluster/README.md) | Web interface for configuration and monitoring |
+| [`owsync`](https://github.com/pgaufillet/owsync) | Lightweight encrypted file synchronization daemon |
+| [`lease-sync`](https://github.com/pgaufillet/lease-sync) | Real-time DHCP lease replication daemon |
+| [`dnsmasq-ha`](https://github.com/pgaufillet/openwrt-ha-feed/tree/master/dnsmasq-ha/README.md) | dnsmasq with ubus lease management patches |
 
 ## Requirements
 
