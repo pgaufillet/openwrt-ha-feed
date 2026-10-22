@@ -411,6 +411,23 @@ const ACTIONS = [
 		await modalSave(p);
 		await saveMain(p);
 	}],
+	['general-bool-spellings', 'bool-spellings', 'simple', async p => {
+		await saveMain(p);
+	}],
+	['general-peer-bool-spellings', 'bool-spellings', 'simple', async p => {
+		await p.click('[id="cbi-ha-cluster-peer1"] .cbi-button-edit');
+		await p.waitForSelector('.modal');
+		await settle(p);
+		await modalSave(p);
+	}],
+	['general-vip-bool-spellings', 'bool-spellings', 'simple', async p => {
+		for (const vip of ['lan', 'lan_old']) {
+			await p.click(`[id="cbi-ha-cluster-${vip}"] .cbi-button-edit`);
+			await p.waitForSelector('.modal');
+			await settle(p);
+			await modalSave(p);
+		}
+	}],
 	['general-peer-vrrp-only', 'full', 'simple', async p => {
 		await p.click('[id="cbi-ha-cluster-peer1"] .cbi-button-edit');
 		await p.waitForSelector('.modal');
@@ -483,6 +500,17 @@ const ACTIONS = [
 		await dynlistAdd(p, field(sid, 'notification_email'), 'ops@example.com');
 		await fill(p, field(sid, 'smtp_server'), '192.168.50.3');
 		await saveMain(p);
+	}],
+	['vrrp-global-bool-spellings', 'bool-spellings', 'keepalived-advanced', async p => {
+		await saveMain(p);
+	}],
+	['vrrp-instance-bool-spellings', 'bool-spellings', 'keepalived-advanced', async p => {
+		for (const inst of ['main', 'guest']) {
+			await p.click(`[id="cbi-ha-cluster-${inst}"] .cbi-button-edit`);
+			await p.waitForSelector('.modal');
+			await settle(p);
+			await modalSave(p);
+		}
 	}],
 	['vrrp-script-add', 'full', 'keepalived-advanced', async p => {
 		await addNamed(p, 'script', 'check_dns');

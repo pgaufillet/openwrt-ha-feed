@@ -177,6 +177,28 @@ return view.extend({
 			return L.resource('icons/%s.svg').format(type);
 		};
 
+		// UCI boolean as read by config_get_bool
+		var getBool = function(value, dflt) {
+			if (['1', 'on', 'true', 'yes', 'enabled'].indexOf(value) !== -1)
+				return true;
+			if (['0', 'off', 'false', 'no', 'disabled'].indexOf(value) !== -1)
+				return false;
+			return dflt;
+		};
+
+		// Flag read as config_get_bool reads it, written when its meaning changes
+		var boolFlag = function(o, dflt) {
+			o.rmempty = false;
+			o.cfgvalue = function(section_id) {
+				return getBool(uci.get('ha-cluster', section_id, this.option), dflt) ? '1' : '0';
+			};
+			o.write = function(section_id, value) {
+				if (this.cfgvalue(section_id) !== value)
+					uci.set('ha-cluster', section_id, this.option, value);
+			};
+			return o;
+		};
+
 		m = new form.Map('ha-cluster', _('High Availability - Advanced VRRP'),
 			_('Advanced VRRP instance tuning. VIPs and instance assignment are in General.'));
 
@@ -200,7 +222,7 @@ return view.extend({
 
 		o = s.option(form.Flag, 'enable_notifications', _('Enable Email Notifications'),
 			_('Send email on state changes. Requires SMTP server.'));
-		o.default = '0';
+		boolFlag(o, false);
 
 		o = s.option(form.DynamicList, 'notification_email', _('Recipient Emails'));
 		o.depends('enable_notifications', '1');
@@ -302,7 +324,7 @@ return view.extend({
 
 		o = s.taboption('timing', form.Flag, 'nopreempt', _('Keep Current MASTER (disable preemption)'),
 			_('Current MASTER stays MASTER even if higher-priority router returns.'));
-		o.default = '1';
+		boolFlag(o, true);
 		o.modalonly = true;
 
 		o = s.taboption('timing', form.Value, 'preempt_delay', _('Preempt Delay'),

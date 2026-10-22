@@ -3,7 +3,6 @@ add <anon1> vip
 set <anon1> interface lan
 set <anon1> vrrp_instance main
 set <anon1> address 192.168.50.254
-set <anon1> enabled 1
 set main vrrp_instance
 set main vrid 64
 set main interface lan

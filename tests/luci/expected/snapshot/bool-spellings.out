@@ -1,0 +1,241 @@
+==== status
+h2: High Availability Status
+Real-time status of the HA cluster. Updates every 5 seconds.
+h3: Cluster Status
+| Cluster Overview
+| Cluster State | DEGRADED
+| Node Role | MASTER
+| Instance: main | MASTER
+| Instance: main_v6 | MASTER
+| Last Synchronization
+| Config Sync | <time>
+| Lease Sync | <time>
+h3: Service Status
+| Service | Status | PID | Uptime
+| keepalived | Running | <pid> | <uptime>
+| owsync | Running | <pid> | <uptime>
+| lease-sync | Running | <pid> | <uptime>
+h3: Peer Status
+| Peer Name | Address | State | Last Seen
+| edge-router VRRP only | 172.30.0.20 | Offline | Unreachable
+==== simple
+h2: High Availability - General
+Configure a high availability cluster with 2 or more routers. Advanced options are available in the Advanced pages.
+h3: Cluster Configuration
+config.enabled [CBI.FlagValue] Enable HA Cluster: [x]
+  help: Enable high availability clustering on this router
+config.node_priority [CBI.Value] Priority: value=100 (placeholder "100")
+  help: VRRP priority (1-255). Higher priority becomes MASTER.
+config.vrrp_transport [CBI.ListValue] VRRP Transport: select=multicast {multicast,unicast}
+  help: Multicast is the default. Use unicast when multicast is unavailable on the network. Unicast adverts go to the peers below, from the first Source Address set: this fits only failover groups on the peers' network; another group sets its own unicast addresses in Advanced VRRP.
+h3: Peer Routers
+Other routers of the cluster. Configuration and lease sync run with every peer not marked VRRP only. In multicast mode, VRRP does not use this list.
+| Peer | Role | 
+| peer1: edge-router (172.30.0.20) | VRRP only | [☰][Edit][Delete]
+<button> Add
+h3: Virtual IP Addresses
+All VIPs share a single failover group and switch together. Use the Advanced page to create independent failover groups. Multicast VRRP adds a second instance with VRID+128 for the IPv6 addresses. Unicast VRRP runs one instance in the family of the unicast addresses, and the other family fails over with it.
+| Interface | VRID | IPv4 Address | IPv6 Address | Enable | 
+| lan: <img> lan | 51 | 192.168.50.254 | none | Yes | [☰][Edit][Delete]
+| lan_old: <img> lan | 51 | 192.168.50.253 | none | No | [☰][Edit][Delete]
+<button> Add VIP...
+h3: Synchronization
+Keeps configuration files and DHCP leases identical on the cluster nodes. These settings must be the same on every node.
+config.encryption_key [CBI.Value] Encryption Key: password= (placeholder "Click "Generate New Key" below to create a secure random key") button "∗"
+  help: 256-bit AES key (64 hexadecimal characters), used for both configuration and lease sync. Must be identical on all nodes. Leave empty to sync in plaintext.
+config._generate_key [CBI.ButtonValue] Generate New Key: button "Generate New Key"
+h3: Configuration Files
+config._group_dhcp [CBI.FlagValue] DHCP and DNS: [ ]
+  help: /etc/config/dhcp: address pools, static leases, DNS settings.
+config._group_firewall [CBI.FlagValue] Firewall: [ ]
+  help: /etc/config/firewall: zones, rules, port forwards. Review the rules before enabling: they apply to every node.
+h3: DHCP Leases
+config.lease_sync [CBI.FlagValue] Real-time Lease Sync: [ ]
+  help: Replicates DHCP leases between nodes so that clients keep their address after a failover. Independent of the DHCP configuration sync above.
+==== simple modal peer1
+h4: High Availability - General
+peer1.name [CBI.Value] Peer Name: value=edge-router (placeholder "router2")
+peer1.address [CBI.Value] Peer IP Address: value=172.30.0.20 (placeholder "192.168.1.2")
+peer1.source_address [CBI.ListValue] Source Address: select= {,172.30.0.10,fd00:172:30::10,192.168.50.10,fd00:192:168:50::10}
+  help: Local IP to use when contacting this peer. Must match address family (IPv4/IPv6) of peer.
+peer1.vrrp_only [CBI.FlagValue] VRRP only: [x]
+  help: Tick for a router that does not run ha-cluster, for example a non-OpenWrt VRRP router. It is excluded from configuration and lease sync. In multicast mode VRRP does not use peer entries, so this entry only feeds the Status page.
+<button> Dismiss
+<button> Save
+==== simple modal lan
+h4: High Availability - General
+lan.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+lan.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.50.254 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+lan.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+lan.address6 [CBI.Value] Virtual IP Address (IPv6): value= (placeholder "fd00::1")
+  help: Optional. Multicast VRRP advertises it in a second instance with VRID+128; unicast VRRP fails it over with the single instance.
+lan.enabled [CBI.FlagValue] Enable: [x]
+<button> Dismiss
+<button> Save
+==== simple modal lan_old
+h4: High Availability - General
+lan_old.interface [CBI.ListValue] Interface: select=lan {backend,lan}
+lan_old.address [CBI.Value] Virtual IP Address (IPv4): value=192.168.50.253 (placeholder "192.168.1.254")
+  help: Optional. You can configure IPv4 only, IPv6 only, or both (dual-stack).
+lan_old.netmask [CBI.Value] Netmask: value=255.255.255.0 (placeholder "255.255.255.0")
+lan_old.address6 [CBI.Value] Virtual IP Address (IPv6): value= (placeholder "fd00::1")
+  help: Optional. Multicast VRRP advertises it in a second instance with VRID+128; unicast VRRP fails it over with the single instance.
+lan_old.enabled [CBI.FlagValue] Enable: [ ]
+<button> Dismiss
+<button> Save
+==== keepalived-advanced
+h2: High Availability - Advanced VRRP
+Advanced VRRP instance tuning. VIPs and instance assignment are in General.
+h3: Global Settings
+Keepalived global options and email notifications.
+advanced.max_auto_priority [CBI.Value] Max Auto Priority: value= (placeholder "0")
+  help: Set to 0 to disable auto-priority (recommended).
+advanced.log_level [CBI.ListValue] HA Cluster Log Level: select=2 {0,1,2,3}
+  help: Verbosity of ha-cluster shell scripts logging.
+advanced.enable_notifications [CBI.FlagValue] Enable Email Notifications: [x]
+  help: Send email on state changes. Requires SMTP server.
+advanced.notification_email [CBI.DynamicList] Recipient Emails: item=admin@example.com
+advanced.notification_email_from [CBI.Value] From Email: value= (placeholder "ha-cluster@router.local")
+advanced.smtp_server [CBI.Value] SMTP Server: value=192.168.50.2 (placeholder "192.168.1.100")
+h3: VRRP Instances
+The General page creates a single "main" instance for atomic failover of all VIPs. Add extra instances here for independent failover groups.
+| Name | VRID | Interface | VIPs | 
+| main: main | 51 | lan | 2 | [☰][Edit][Delete]
+| guest: guest | 52 | lan | 0 | [☰][Edit][Delete]
+<input> 
+<button> Add
+h3: Health Checks (VRRP Scripts)
+Custom checks referenced by track_script. Examples: ping gateway, check DNS, verify VPN.
+| Name | Script | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: State Change Hooks
+Shell scripts executed on VRRP state changes. Click Edit to modify. Environment: $ACTION, $NAME, $TYPE.
+| Name | 
+| 01-ubus | [Edit]
+| 01-user | [Edit]
+<input> e.g., 60-vpn-failover
+<button> Add
+==== keepalived-advanced modal main
+[tab General]
+h4: High Availability - Advanced VRRP - main
+main.vrid [CBI.Value] VRID: value=51
+  help: Virtual Router ID (1-127). Must match on all cluster nodes. 128-255 reserved for auto-generated IPv6 instances.
+main.interface [CBI.ListValue] Primary Interface: select=lan {backend,lan}
+  help: Interface used for VRRP advertisements.
+<button> Dismiss
+<button> Save
+[tab Timing]
+h4: High Availability - Advanced VRRP - main
+main.advert_int [CBI.Value] Advertisement Interval: value=1 (placeholder "1.0")
+  help: VRRP advertisement frequency (seconds). Lower = faster failover. Default: 1.
+main.priority [CBI.Value] Priority: value= (placeholder "Use global priority")
+  help: Override global priority for this instance. Leave empty for global priority.
+main.nopreempt [CBI.FlagValue] Keep Current MASTER (disable preemption): [x]
+  help: Current MASTER stays MASTER even if higher-priority router returns.
+main.preempt_delay [CBI.Value] Preempt Delay: value= (placeholder "30")
+  help: Seconds before higher-priority router takes over. Prevents flapping. Recommended: 30-60.
+main.garp_master_delay [CBI.Value] GARP Delay: value= (placeholder "5")
+  help: Seconds before sending Gratuitous ARP after becoming MASTER. Helps with slow switches. Default: 5.
+<button> Dismiss
+<button> Save
+[tab Authentication]
+h4: High Availability - Advanced VRRP - main
+main.auth_type [CBI.ListValue] Authentication Type: select=none {none,pass,ah}
+  help: PASS: basic (max 8 chars, cleartext). AH: cryptographic (requires kmod-ipsec).
+<button> Dismiss
+<button> Save
+[tab Tracking]
+h4: High Availability - Advanced VRRP - main
+main.track_interface [CBI.DynamicList] Track Interfaces: 
+  help: Failover when tracked interface goes DOWN. Common: track WAN for internet failover.
+main.track_script [CBI.DynamicList] Track Scripts: 
+  help: Failover when health check fails. Define scripts in Health Checks section below.
+<button> Dismiss
+<button> Save
+[tab Unicast]
+h4: High Availability - Advanced VRRP - main
+main.unicast_src_ip [CBI.Value] Unicast Source IP: value= (placeholder "e.g., 192.168.1.1")
+  help: This router's address for unicast VRRP, in the family of a unicast peer. When empty, keepalived uses an address of the interface.
+main.unicast_peer [CBI.DynamicList] Unicast Peer IPs: 
+  help: Addresses of the other routers for unicast VRRP. Any entry makes this group unicast; only the peers in the family of the source IP, or else of the first peer, are used.
+<button> Dismiss
+<button> Save
+==== keepalived-advanced modal guest
+[tab General]
+h4: High Availability - Advanced VRRP - guest
+guest.vrid [CBI.Value] VRID: value=52
+  help: Virtual Router ID (1-127). Must match on all cluster nodes. 128-255 reserved for auto-generated IPv6 instances.
+guest.interface [CBI.ListValue] Primary Interface: select=lan {backend,lan}
+  help: Interface used for VRRP advertisements.
+<button> Dismiss
+<button> Save
+[tab Timing]
+h4: High Availability - Advanced VRRP - guest
+guest.advert_int [CBI.Value] Advertisement Interval: value=1 (placeholder "1.0")
+  help: VRRP advertisement frequency (seconds). Lower = faster failover. Default: 1.
+guest.priority [CBI.Value] Priority: value= (placeholder "Use global priority")
+  help: Override global priority for this instance. Leave empty for global priority.
+guest.nopreempt [CBI.FlagValue] Keep Current MASTER (disable preemption): [ ]
+  help: Current MASTER stays MASTER even if higher-priority router returns.
+guest.preempt_delay [CBI.Value] Preempt Delay: value= (placeholder "30")
+  help: Seconds before higher-priority router takes over. Prevents flapping. Recommended: 30-60.
+guest.garp_master_delay [CBI.Value] GARP Delay: value= (placeholder "5")
+  help: Seconds before sending Gratuitous ARP after becoming MASTER. Helps with slow switches. Default: 5.
+<button> Dismiss
+<button> Save
+[tab Authentication]
+h4: High Availability - Advanced VRRP - guest
+guest.auth_type [CBI.ListValue] Authentication Type: select=none {none,pass,ah}
+  help: PASS: basic (max 8 chars, cleartext). AH: cryptographic (requires kmod-ipsec).
+<button> Dismiss
+<button> Save
+[tab Tracking]
+h4: High Availability - Advanced VRRP - guest
+guest.track_interface [CBI.DynamicList] Track Interfaces: 
+  help: Failover when tracked interface goes DOWN. Common: track WAN for internet failover.
+guest.track_script [CBI.DynamicList] Track Scripts: 
+  help: Failover when health check fails. Define scripts in Health Checks section below.
+<button> Dismiss
+<button> Save
+[tab Unicast]
+h4: High Availability - Advanced VRRP - guest
+guest.unicast_src_ip [CBI.Value] Unicast Source IP: value= (placeholder "e.g., 192.168.1.1")
+  help: This router's address for unicast VRRP, in the family of a unicast peer. When empty, keepalived uses an address of the interface.
+guest.unicast_peer [CBI.DynamicList] Unicast Peer IPs: 
+  help: Addresses of the other routers for unicast VRRP. Any entry makes this group unicast; only the peers in the family of the source IP, or else of the first peer, are used.
+<button> Dismiss
+<button> Save
+==== owsync-advanced
+h2: High Availability - Advanced Config Sync
+Custom sync groups for services beyond General settings (e.g., VPN, mwan3).
+h3: Global Settings
+owsync global options.
+advanced.sync_interval [CBI.Value] Poll Interval (seconds): value= (placeholder "30")
+  help: Seconds between scans of the synced files. A local change is sent to the peers after the next scan.
+advanced.owsync_log_level [CBI.ListValue] Log Level: select=2 {0,1,2,3}
+  help: Verbosity of owsync daemon logging.
+h3: Additional Sync Groups
+Click Edit to configure files.
+| Name | Status | Files | 
+| This section contains no values yet
+<input> 
+<button> Add
+h3: Exclusions
+Files never synced; exclusions take precedence over sync groups. Default: network, system, owsync, ha-cluster, wireless.
+<em> This section contains no values yet
+==== lease-sync-advanced
+h2: High Availability - Advanced Lease Sync
+Tuning for high-churn environments, unreliable networks, or troubleshooting.
+h3: Lease-Sync Tuning
+Default values work for most deployments.
+advanced.lease_sync_port [CBI.Value] Sync Port: value= (placeholder "5378")
+  help: UDP port for lease sync.
+advanced.lease_sync_interval [CBI.Value] Sync Interval: value= (placeholder "30")
+  help: Seconds between full sync requests. Safety net for missed updates.
+advanced.lease_sync_peer_timeout [CBI.Value] Peer Timeout: value= (placeholder "120")
+  help: Seconds without heartbeat before peer is offline. Should be 4x sync_interval.
+advanced.lease_sync_log_level [CBI.ListValue] Log Level: select=2 {0,1,2,3}
+  help: Use Debug (3) for troubleshooting sync issues.

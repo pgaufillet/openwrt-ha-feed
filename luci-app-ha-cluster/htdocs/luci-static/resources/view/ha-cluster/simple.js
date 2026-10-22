@@ -98,6 +98,19 @@ return view.extend({
 			return getBool(group.enabled, true);
 		};
 
+		// Flag read as config_get_bool reads it, written when its meaning changes
+		var boolFlag = function(o, dflt) {
+			o.rmempty = false;
+			o.cfgvalue = function(section_id) {
+				return getBool(uci.get('ha-cluster', section_id, this.option), dflt) ? '1' : '0';
+			};
+			o.write = function(section_id, value) {
+				if (this.cfgvalue(section_id) !== value)
+					uci.set('ha-cluster', section_id, this.option, value);
+			};
+			return o;
+		};
+
 		// Full width in the flex option row, like the DHCP hint
 		var installHint = function(text) {
 			var hint = E('div', { 'class': 'alert-message warning', 'style': 'flex: 1' }, E('p', {}, text));
@@ -127,7 +140,7 @@ return view.extend({
 
 		o = s.option(form.Flag, 'enabled', _('Enable HA Cluster'),
 			_('Enable high availability clustering on this router'));
-		o.rmempty = false;
+		boolFlag(o, false);
 
 		o = s.option(form.Value, 'node_priority', _('Priority'),
 			_('VRRP priority (1-255). Higher priority becomes MASTER.'));
@@ -320,6 +333,7 @@ return view.extend({
 		};
 
 		o = s.option(form.Flag, 'vrrp_only', _('VRRP only'), vrrpOnlyHelp);
+		boolFlag(o, false);
 		o.modalonly = true;
 
 		s = m.section(form.GridSection, 'vip', _('Virtual IP Addresses'),
@@ -479,8 +493,7 @@ return view.extend({
 		o.depends({ address6: /.+/ });
 
 		o = s.option(form.Flag, 'enabled', _('Enable'));
-		o.default = '1';
-		o.rmempty = false;
+		boolFlag(o, true);
 		o.modalonly = true;
 
 		s = m.section(form.NamedSection, 'config', 'global', _('Synchronization'),
