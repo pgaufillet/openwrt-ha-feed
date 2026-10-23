@@ -37,10 +37,10 @@ release to `feeds.conf`:
 # feeds.conf replaces feeds.conf.default: start from a copy
 [ -f feeds.conf ] || cp feeds.conf.default feeds.conf
 # OpenWrt 25.12
-echo "src-git hacluster https://github.com/pgaufillet/openwrt-ha-feed.git;openwrt-25.12" >> feeds.conf
+echo "src-git ha_feed https://github.com/pgaufillet/openwrt-ha-feed.git;openwrt-25.12" >> feeds.conf
 
-./scripts/feeds update hacluster
-./scripts/feeds install -a -p hacluster
+./scripts/feeds update ha_feed
+./scripts/feeds install -a -p ha_feed
 ```
 
 Feed branches follow OpenWrt's: `master` follows OpenWrt `main`, and each
@@ -87,15 +87,24 @@ ha-cluster and luci-app-ha-cluster 2.0.0 change the schema of
 `/etc/config/ha-cluster`; the existing file is migrated on install (see
 below). Upgrade both packages together (e.g. `apk upgrade`): the 2.0.0
 web interface does not work with a 1.x ha-cluster, nor the reverse.
-Upgrade all nodes in the same maintenance window. The file is not synced
-between nodes: check the migrated file on each one.
+Upgrade all nodes in the same maintenance window, BACKUP nodes first:
+the upgrade restarts keepalived once, so upgrading the MASTER causes a
+single switchover. The file is not synced between nodes: check the
+migrated file on each one.
 
-The full list of behaviour changes is in
-[ha-cluster's upgrade notes](ha-cluster/README.md#upgrading). One needs
-action: with unicast peers, a VRRP instance whose peers and VIPs are all
-IPv6 now runs as `<name>` with its VRID instead of `<name>_v6` with
-VRID+128. Nodes on different versions do not see each other for that
-instance, and hotplug scripts matching `<name>_v6` must be updated.
+The full list of behaviour changes, and the ones that need action, is in
+[ha-cluster's upgrade notes](ha-cluster/README.md#upgrading). Among them:
+
+- A configuration from the `v1.0.0` tag, with `vrid` and `priority` on
+  each VIP, is not converted: recreate its VIPs after upgrading.
+- With unicast peers, a VRRP instance whose peers and VIPs are all IPv6
+  now runs as `<name>` with its VRID instead of `<name>_v6` with
+  VRID+128. Nodes on different versions do not see each other for that
+  instance, and hotplug scripts matching `<name>_v6` must be updated.
+- A `vip` without an `enabled` option is now enabled and validated; set
+  `enabled '0'` before upgrading to keep it off.
+- lease-sync follows `lease_sync` alone: set `lease_sync '0'` to keep it
+  off.
 
 ### Sync options renamed
 
@@ -174,6 +183,9 @@ VIPs:
 
    ```bash
    mkdir -p /tmp/dnsmasq-stock && cd /tmp/dnsmasq-stock
+   ```
+
+   ```bash
    apk fetch dnsmasq
    ```
 
