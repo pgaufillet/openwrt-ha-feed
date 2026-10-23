@@ -37,8 +37,8 @@ branch: `master` now follows OpenWrt `main` (see
   longer supported.
 - Docker build environment based on the OpenWrt SDK, for any target and
   stable release, with parallel and incremental builds.
-- The feed can be hosted as a signed apk repository (public key in
-  `keys/`).
+- The feed can be hosted as a signed apk repository (key generation in
+  the README).
 - `scripts/install-ha-cluster.sh` installs the cluster on a router and
   swaps dnsmasq for dnsmasq-ha once every dependency is in place. It no
   longer installs `kmod-ipt-ipset`.

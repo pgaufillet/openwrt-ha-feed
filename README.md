@@ -441,9 +441,10 @@ If you want to serve pre-built packages to your routers without compiling on the
 
 #### 1. Generate a Signing Key
 
-apk repositories are signed with an ECDSA (prime256v1) key, generated the same way as the OpenWrt build key. Do this once and keep the private key safe (`keys/*.sec` is git-ignored):
+apk repositories are signed with an ECDSA (prime256v1) key, generated the same way as the OpenWrt build key. Do this once and keep the private key safe (`keys/` is git-ignored):
 
 ```bash
+mkdir -p keys
 openssl ecparam -name prime256v1 -genkey -noout -out keys/ha_feed_apk.sec
 openssl ec -in keys/ha_feed_apk.sec -pubout -out keys/ha_feed_apk.pem
 ```
@@ -477,7 +478,7 @@ scp $FEED_DIR/*.apk $FEED_DIR/packages.adb myserver:/var/www/openwrt/ha_feed/
 
 #### 4. Configure Routers to Use the Feed
 
-On each router, install the public key under `/etc/apk/keys/` (copy `keys/ha_feed_apk.pem` there, e.g. with `scp`), then add the index URL to the custom feeds list:
+On each router, install the public key under `/etc/apk/keys/` (copy your `keys/ha_feed_apk.pem` from step 1 there, e.g. with `scp`), then add the index URL to the custom feeds list:
 
 ```bash
 # Public key copied to /etc/apk/keys/ha_feed_apk.pem beforehand

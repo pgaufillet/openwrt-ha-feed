@@ -1,6 +1,6 @@
 # Development symlinks for source tree override
 */git-src
-keys/*.sec
+keys/*
 
 # Docker build output (docker run -v "$PWD/output:/output" ...)
 /output/
