@@ -24,6 +24,7 @@
 #   SIGN_KEY   Path (inside the container) to the index signing key: an apk
 #              ECDSA private key on 25.12 and later, a usign key on 24.10
 #              and earlier. When set, a signed package index is generated.
+#              Refused with an SDK volume.
 #              Mount it read-only, e.g. -v "$PWD/keys/ha_feed_apk.sec:/keys/ha_feed_apk.sec:ro"
 #              -e SIGN_KEY=/keys/ha_feed_apk.sec
 #   VERBOSE    Set to 1 for `make ... V=s` verbose output.
@@ -44,6 +45,11 @@ cd "$SDK_DIR"
 CACHED=0
 mountpoint -q "$SDK_DIR" && CACHED=1
 
+if [ "$CACHED" = 1 ] && [ -n "${SIGN_KEY:-}" ]; then
+    echo "ERROR: SIGN_KEY needs a one-shot build: with an SDK volume, the" >&2
+    echo "index would also list packages of earlier runs, not in /output." >&2
+    exit 1
+fi
 if [ ! -f Makefile ]; then
     echo "ERROR: $SDK_DIR is empty. Mount a named volume there, not a host" >&2
     echo "directory: only named volumes are seeded from the image." >&2

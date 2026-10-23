@@ -158,8 +158,9 @@ picked up on the next run. In this mode the requested packages are always
 rebuilt, and only they are copied to `./output` (not their dependencies).
 
 - Use a named volume, not a host directory: only named volumes are seeded.
-- Prefer a one-shot build for releases: with `SIGN_KEY`, the index covers
-  every package the volume holds, including those of earlier runs.
+- `SIGN_KEY` is refused in this mode: the index would cover every package
+  the volume holds, including those of earlier runs. Sign with a one-shot
+  build.
 - Use one volume per image. After rebuilding the image, the old volume is
   rejected; clear it with `docker volume rm ha-feed-sdk` (the next run
   reseeds it).
