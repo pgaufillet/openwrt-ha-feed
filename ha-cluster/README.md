@@ -31,14 +31,21 @@ apk add libnettle libnetfilter-conntrack nftables-json
 apk add keepalived
 apk add libopenssl3
 
-# 3. Swap dnsmasq for dnsmasq-ha and install remaining packages
+# 3. Download the feed packages (while DNS works)
+mkdir -p /tmp/ha-pkgs && cd /tmp/ha-pkgs
+apk fetch dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster
+
+# 4. Swap dnsmasq for dnsmasq-ha, then install the rest, from local files
 apk del dnsmasq              # or: apk del dnsmasq-full
-apk add dnsmasq-ha ha-cluster owsync lease-sync luci-app-ha-cluster
+apk add --allow-untrusted /tmp/ha-pkgs/dnsmasq-ha-*.apk
+apk add --allow-untrusted /tmp/ha-pkgs/*.apk
 ```
 
 **Why the explicit swap?** dnsmasq-ha replaces stock dnsmasq. Removing
 dnsmasq kills DNS resolution, so ALL dependencies must be pre-installed
-before the swap.
+and the feed packages downloaded before the swap. Feed packages are signed
+through the repository index, not individually, so a local file needs
+`--allow-untrusted`.
 
 ## Upgrading
 
@@ -72,7 +79,9 @@ causes a single switchover.
 Behaviour changes:
 
 - A `vip` without an `enabled` option is now enabled, as LuCI shows it;
-  1.0.x skipped it.
+  1.0.x skipped it. It is also validated like the other VIPs (a failed
+  check, such as a missing `force` on its DHCP interface, stops
+  ha-cluster): set `enabled '0'` before upgrading to keep it off.
 - lease-sync follows `lease_sync` alone: a disabled `dhcp` sync group no
   longer stops it. Set `lease_sync '0'` to keep it off.
 - owsync no longer runs without work (see
