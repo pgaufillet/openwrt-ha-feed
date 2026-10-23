@@ -16,7 +16,7 @@ version.
 Before upgrading from 1.0.x, read
 [Upgrading from 1.0.x to 2.0.0](ha-cluster/README.md#upgrading): the
 configuration is migrated in place, and all nodes must be upgraded
-together.
+together, BACKUP nodes first: the upgrade restarts keepalived once.
 
 | Package | 1.0.0 | 2.0.0 |
 |---------|-------|-------|
@@ -61,6 +61,7 @@ Configuration (breaking, migrated on upgrade except the first item):
   `lease_sync_persist_interval`.
 
 Behaviour:
+- A VIP without an `enabled` option is enabled, as LuCI shows it.
 - owsync and lease-sync are optional: each runs only when installed and
   needed. A daemon that is needed but not installed is logged as a
   warning.

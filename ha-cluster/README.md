@@ -43,7 +43,7 @@ before the swap.
 ## Upgrading
 
 Upgrading from 1.0.x to 2.0.0 migrates `/etc/config/ha-cluster` in place
-before ha-cluster restarts:
+before ha-cluster regenerates its configuration:
 
 - `service` sections become `sync_group` sections
 - the `dhcp` group's `sync_leases` becomes the global `lease_sync`, and
@@ -65,8 +65,14 @@ apk installs the new default config next to an edited one as
 `/etc/config/ha-cluster.apk-new`: it is for reference only, the migrated
 file stays in use.
 
+The upgrade restarts keepalived once (its procd instance parameters
+change): upgrade the BACKUP nodes first, so that upgrading the MASTER
+causes a single switchover.
+
 Behaviour changes:
 
+- A `vip` without an `enabled` option is now enabled, as LuCI shows it;
+  1.0.x skipped it.
 - lease-sync follows `lease_sync` alone: a disabled `dhcp` sync group no
   longer stops it. Set `lease_sync '0'` to keep it off.
 - owsync no longer runs without work (see
