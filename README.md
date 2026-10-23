@@ -30,14 +30,24 @@ A high-availability solution for OpenWrt routers, providing automatic failover, 
 
 ### Add the Feed
 
-```bash
-# Add feed to /etc/openwrt_distfeeds.conf or feeds.conf
-echo "src-git hacluster https://github.com/pgaufillet/openwrt-ha-feed.git" >> feeds.conf
+In an OpenWrt buildroot or SDK, add the feed branch matching your OpenWrt
+release to `feeds.conf`:
 
-# Update and install
+```bash
+# feeds.conf replaces feeds.conf.default: start from a copy
+[ -f feeds.conf ] || cp feeds.conf.default feeds.conf
+# OpenWrt 25.12
+echo "src-git hacluster https://github.com/pgaufillet/openwrt-ha-feed.git;openwrt-25.12" >> feeds.conf
+
 ./scripts/feeds update hacluster
 ./scripts/feeds install -a -p hacluster
 ```
+
+Feed branches follow OpenWrt's: `master` follows OpenWrt `main`, and each
+supported OpenWrt release branch has a feed branch of the same name
+(`openwrt-25.12`). Changes land on `master`, then are cherry-picked to the
+release branches. On each branch, dnsmasq-ha follows the dnsmasq package
+of the matching OpenWrt branch.
 
 ### Disable a Legacy keepalived
 
@@ -61,15 +71,15 @@ not read this file.
 
 ### Install Packages
 
-```bash
-# Install the complete HA solution
-apk update
-apk add ha-cluster luci-app-ha-cluster
-
-# Or install individual components
-apk add owsync        # Config sync only
-apk add lease-sync    # DHCP sync only
-```
+No public package repository is published: build the packages and serve
+them from your own repository (see
+[Building and Hosting Your Own Package Repository](#building-and-hosting-your-own-package-repository)),
+then install them with
+[`scripts/install-ha-cluster.sh`](scripts/install-ha-cluster.sh) (see
+[Configure Routers to Use the Feed](#4-configure-routers-to-use-the-feed)).
+A plain `apk add` is not safe: lease-sync depends on dnsmasq-ha, which
+replaces the stock dnsmasq serving the router's own DNS. The manual steps
+are in [ha-cluster's installation notes](ha-cluster/README.md#installation).
 
 ## Upgrading
 
@@ -206,10 +216,9 @@ VIPs:
 
 **On both routers:**
 
-1. Install packages:
+1. Install the packages (see [Install Packages](#install-packages)):
    ```bash
-   apk update
-   apk add ha-cluster luci-app-ha-cluster
+   sh install-ha-cluster.sh
    ```
 
 2. Open LuCI: **Services → High Availability → Quick Setup**

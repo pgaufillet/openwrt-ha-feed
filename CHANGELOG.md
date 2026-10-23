@@ -18,6 +18,10 @@ Before upgrading from 1.0.x, read
 configuration is migrated in place, and all nodes must be upgraded
 together, BACKUP nodes first: the upgrade restarts keepalived once.
 
+Builds for OpenWrt 25.12 should use the feed's new `openwrt-25.12`
+branch: `master` now follows OpenWrt `main` (see
+[Add the Feed](README.md#add-the-feed)).
+
 | Package | 1.0.0 | 2.0.0 |
 |---------|-------|-------|
 | `ha-cluster` | 1.0.0 | 2.0.0 |
@@ -27,6 +31,8 @@ together, BACKUP nodes first: the upgrade restarts keepalived once.
 | `dnsmasq-ha` | 2.90 | 2.93 |
 
 ### Platform
+- Feed branches: `master` follows OpenWrt `main`, `openwrt-25.12` follows
+  OpenWrt 25.12.
 - OpenWrt 25.12 and its apk package manager. OpenWrt 24.10 (opkg) is no
   longer supported.
 - Docker build environment based on the OpenWrt SDK, for any target and

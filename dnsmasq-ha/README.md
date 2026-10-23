@@ -10,10 +10,10 @@ Cannot be installed alongside dnsmasq or dnsmasq-full.
 
 ## Contents
 
-The package follows the stock OpenWrt dnsmasq of the targeted release:
-same upstream version, same `files/` and same patches 100 and 200. Only
-the packaging differs: a single variant, built with the dnsmasq-full
-default options, which provides `dnsmasq`.
+The package follows the stock dnsmasq of the OpenWrt branch the feed
+branch follows: same upstream version, same `files/` and same patches 100
+and 200. Only the packaging differs: a single variant, built with the
+dnsmasq-full default options, which provides `dnsmasq`.
 
 [`patches/300-ubus-add-lease-methods.patch`](patches/300-ubus-add-lease-methods.patch)
 adds the lease methods to dnsmasq's ubus object; lease-sync uses them to
