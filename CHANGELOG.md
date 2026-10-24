@@ -11,7 +11,7 @@ the major version changes when an upgrade needs action (configuration
 schema change, all nodes upgraded together). Each package keeps its own
 version.
 
-## [2.0.0] - Unreleased
+## [2.0.0] - 2026-10-24
 
 Before upgrading from 1.0.x, read
 [Upgrading from 1.0.x to 2.0.0](ha-cluster/README.md#upgrading): the
